@@ -10,17 +10,43 @@ export function formatDate(date: Date | string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function isToday(date: Date | string): boolean {
+/**
+ * isToday — timezone-aware when tz is provided, falls back to local browser TZ.
+ */
+export function isToday(date: Date | string, tz?: string): boolean {
+  const raw = typeof date === "string" ? date : "";
+  if (tz) {
+    const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw === todayStr;
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(date)) === todayStr;
+  }
+  // Fallback: YYYY-MM-DD strings compared to local date to avoid UTC shift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const today = new Date();
+    const todayLocal = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+    return raw === todayLocal;
+  }
   const d = new Date(date);
   const today = new Date();
-  return (
-    d.getDate() === today.getDate() &&
-    d.getMonth() === today.getMonth() &&
-    d.getFullYear() === today.getFullYear()
-  );
+  return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
 }
 
-export function isOverdue(date: Date | string): boolean {
+/**
+ * isOverdue — timezone-aware when tz is provided.
+ */
+export function isOverdue(date: Date | string, tz?: string): boolean {
+  const raw = typeof date === "string" ? date : "";
+  if (tz) {
+    const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw < todayStr;
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(date)) < todayStr;
+  }
+  // Fallback: date-only strings compared lexicographically against local today
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const today = new Date();
+    const todayLocal = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+    return raw < todayLocal;
+  }
   const d = new Date(date);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -33,9 +59,17 @@ export function addDays(date: Date, days: number): Date {
   return d;
 }
 
-export function formatDayLabel(date: Date): string {
+export function formatDayLabel(date: Date, tz?: string): string {
   const today = new Date();
   const tomorrow = addDays(today, 1);
+  if (tz) {
+    const dateStr     = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(date);
+    const todayStr    = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(today);
+    const tomorrowStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(tomorrow);
+    if (dateStr === todayStr)    return "Today";
+    if (dateStr === tomorrowStr) return "Tomorrow";
+    return date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: tz });
+  }
   if (
     date.getDate() === today.getDate() &&
     date.getMonth() === today.getMonth() &&

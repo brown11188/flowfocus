@@ -5,22 +5,36 @@ import { useTheme } from "next-themes";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink } from "lucide-react";
+import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MicrosoftConnectPanel from "@/components/microsoft/microsoft-connect-panel";
+import { TIMEZONE_OPTIONS, getTimezoneOffset } from "@/lib/timezone";
+import { apiFetch } from "@/lib/api";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
-type Tab = "profile" | "appearance" | "integrations" | "danger";
+type Tab = "profile" | "appearance" | "timezone" | "integrations" | "danger";
 
 function SettingsPageInner() {
   const { data: session, update } = useSession();
   const { theme, setTheme } = useTheme();
   const searchParams = useSearchParams();
+  const { setTimezone: setGlobalTimezone } = useTimezoneCtx();
   const [activeTab, setActiveTab] = useState<Tab>(
     (searchParams.get("tab") as Tab) ?? "profile"
   );
   const [name, setName] = useState(session?.user?.name || "");
   const [isLoading, setIsLoading] = useState(false);
+  const [timezone, setTimezone] = useState("UTC");
+  const [isTzLoading, setIsTzLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  // Load timezone from server
+  useEffect(() => {
+    apiFetch("/api/user/timezone")
+      .then(r => r.json())
+      .then((d: { timezone: string }) => { if (d.timezone) setTimezone(d.timezone); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (session?.user?.name) setName(session.user.name);
@@ -41,9 +55,27 @@ function SettingsPageInner() {
     finally { setIsLoading(false); }
   };
 
+  const handleSaveTimezone = async (tz: string) => {
+    setIsTzLoading(true);
+    try {
+      setTimezone(tz);
+      localStorage.setItem("flowfocus_timezone", tz);
+      const res = await apiFetch("/api/user/timezone", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: tz }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setGlobalTimezone(tz); // update context immediately
+      toast.success("Timezone updated!");
+    } catch { toast.error("Failed to update timezone"); }
+    finally { setIsTzLoading(false); }
+  };
+
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "profile", label: "Profile", icon: User },
     { id: "appearance", label: "Appearance", icon: Palette },
+    { id: "timezone", label: "Timezone", icon: Globe },
     { id: "integrations", label: "Integrations", icon: Plug },
     { id: "danger", label: "Danger Zone", icon: Shield },
   ];
@@ -137,6 +169,64 @@ function SettingsPageInner() {
                 <span className="text-sm font-medium">{label}</span>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Timezone tab */}
+      {activeTab === "timezone" && (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="w-4 h-4 text-violet-500" />
+            <h2 className="font-semibold text-gray-900 dark:text-white">Timezone</h2>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+            All dates, due times, &quot;Today&quot; / &quot;Overdue&quot; labels and email scan windows will use this timezone.
+          </p>
+
+          {/* Current timezone info */}
+          <div className="mb-4 p-3 bg-violet-50 dark:bg-violet-950/30 rounded-xl border border-violet-100 dark:border-violet-800/30 flex items-center gap-3">
+            <Globe className="w-4 h-4 text-violet-500 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-violet-800 dark:text-violet-200 truncate">{timezone}</div>
+              <div className="text-xs text-violet-500">
+                Current offset: <span className="font-semibold">{getTimezoneOffset(timezone)}</span>
+                {" · "}
+                Local time now: <span className="font-semibold">
+                  {new Date().toLocaleTimeString("en-US", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: true })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Timezone select */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Select your timezone</label>
+            <select
+              value={timezone}
+              onChange={e => handleSaveTimezone(e.target.value)}
+              disabled={isTzLoading}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 cursor-pointer"
+            >
+              {TIMEZONE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {isTzLoading && (
+              <p className="text-xs text-violet-500 animate-pulse">Saving timezone…</p>
+            )}
+          </div>
+
+          {/* Help text */}
+          <div className="mt-5 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-xs text-gray-500 dark:text-gray-400 space-y-1">
+            <p className="font-medium text-gray-600 dark:text-gray-300">What this affects:</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>Today view — which tasks count as &quot;today&quot;</li>
+              <li>Overdue detection — tasks past midnight in your timezone</li>
+              <li>Upcoming view — day column headers and date grouping</li>
+              <li>Dashboard greeting — morning / afternoon / evening</li>
+              <li>Email scan window — the daily digest uses your local midnight</li>
+            </ul>
           </div>
         </div>
       )}

@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import { useTaskStore } from "@/store/task-store";
 import { Task } from "@/types";
 import { addDays, formatDayLabel, cn, formatDate, isOverdue as checkOverdue, PRIORITY_CONFIG } from "@/lib/utils";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
+import { getTodayStrInTz } from "@/lib/timezone";
 import { InlineAddTask } from "@/components/tasks/inline-add-task";
 import { UpcomingCalendar } from "@/components/calendar/upcoming-calendar";
 import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
@@ -37,17 +39,18 @@ function parseLocalDate(dateStr: string): Date {
 // A card-style task row designed specifically for the Upcoming columns.
 // Has its own bg/border so it visually separates from the column background.
 function UpcomingTaskCard({
-  task, onComplete, onEdit, onDelete, dragHandleProps,
+  task, onComplete, onEdit, onDelete, dragHandleProps, timezone,
 }: {
   task: Task;
   onComplete: (id: string, v: boolean) => void;
   onEdit: (id: string, d: Partial<Task>) => void;
   onDelete: (id: string) => void;
   dragHandleProps?: Record<string, unknown>;
+  timezone?: string;
 }) {
   const [showDetail, setShowDetail] = useState(false);
   const priority = PRIORITY_CONFIG[task.priority as keyof typeof PRIORITY_CONFIG];
-  const overdueDate = task.dueDate && !task.completed && checkOverdue(task.dueDate);
+  const overdueDate = task.dueDate && !task.completed && checkOverdue(task.dueDate, timezone);
   const isBlocked = task.blockedBy?.some(d => !d.blockingTask?.completed);
   const isRecurring = !!task.recurrenceRule;
 
@@ -213,13 +216,14 @@ function DayColumn({
   const dateStr = toLocalDateStr(date);
   const { setNodeRef, isOver } = useDroppable({ id: "day-" + dateStr });
   const [isExpanded, setIsExpanded] = useState(true);
+  const { timezone } = useTimezoneCtx();
 
-  const label = formatDayLabel(date);
+  const label = formatDayLabel(date, timezone);
   const isToday = label === "Today";
   const isTomorrow = label === "Tomorrow";
   const activeTasks = tasks.filter(t => !t.completed);
   const doneTasks = tasks.filter(t => t.completed);
-  const hasOverdue = activeTasks.some(t => checkOverdue(t.dueDate ?? ""));
+  const hasOverdue = activeTasks.some(t => checkOverdue(t.dueDate ?? "", timezone));
 
   return (
     <div
@@ -315,18 +319,20 @@ function DayColumn({
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function UpcomingPage() {
   const { tasks, updateTask, removeTask } = useTaskStore();
+  const { timezone } = useTimezoneCtx();
   const [view, setView] = useState<"list" | "calendar">("list");
   const [startOffset, setStartOffset] = useState(0); // which day-window we're viewing
   const WINDOW = 5; // always show exactly 5 days
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  // The 5 days currently in view
+  // The 5 days currently in view — anchored to today in user's timezone
   const days = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayStr = getTodayStrInTz(timezone);
+    const [y, m, d] = todayStr.split("-").map(Number);
+    const today = new Date(y, m - 1, d, 0, 0, 0);
     return Array.from({ length: WINDOW }, (_, i) => addDays(today, startOffset + i));
-  }, [startOffset]);
+  }, [startOffset, timezone]);
 
   const canGoPrev = startOffset > 0;
 

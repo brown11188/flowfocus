@@ -15,6 +15,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
+  timezone      String    @default("UTC")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -28,6 +29,7 @@ model User {
   microsoftConnection MicrosoftConnection?
   emailScanRules EmailScanRule[]
   emailDigests   EmailDigest[]
+  dailyBriefings DailyBriefing[]
 }
 
 model VerificationToken {
@@ -420,6 +422,25 @@ model SyncLog {
   completedAt DateTime?
 
   @@index([userId, syncType, startedAt])
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Daily Briefing Cache ───────────────────────────────────────────────────
+model DailyBriefing {
+  id          String   @id @default(cuid())
+  userId      String
+  briefingDate String  // YYYY-MM-DD in local TZ
+  data        String   // Full JSON of DailyBriefing object
+  generatedAt DateTime @default(now())
+  refreshCount Int     @default(0)
+  isFromCache Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, briefingDate])
+  @@index([userId])
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

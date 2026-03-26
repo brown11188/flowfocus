@@ -7,6 +7,7 @@ import { ClickUpBadge } from "@/components/clickup/clickup-badge";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
 interface TaskItemProps {
   task: Task;
@@ -19,6 +20,7 @@ interface TaskItemProps {
 
 export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false, compact = false }: TaskItemProps) {
   const [showDetail, setShowDetail] = useState(false);
+  const { timezone } = useTimezoneCtx();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     disabled: !draggable,
@@ -26,7 +28,7 @@ export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false
 
   const style = { transform: CSS.Transform.toString(transform), transition };
   const priority = PRIORITY_CONFIG[task.priority as keyof typeof PRIORITY_CONFIG];
-  const overdueDate = task.dueDate && !task.completed && isOverdue(task.dueDate);
+  const overdueDate = task.dueDate && !task.completed && isOverdue(task.dueDate, timezone);
   const isBlocked = task.blockedBy && task.blockedBy.length > 0 && task.blockedBy.some(d => !d.blockingTask?.completed);
   const isRecurring = !!task.recurrenceRule;
 

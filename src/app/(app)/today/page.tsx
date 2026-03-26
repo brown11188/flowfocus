@@ -10,25 +10,28 @@ import { CalendarDays, ChevronDown, RotateCcw, AlertCircle } from "lucide-react"
 import { apiFetch } from "@/lib/api";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
+import { getTodayStrInTz } from "@/lib/timezone";
 
 export default function TodayPage() {
   const { tasks, updateTask, removeTask, setTasks } = useTaskStore();
   const [showCompleted, setShowCompleted] = useState(false);
+  const { timezone } = useTimezoneCtx();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = getTodayStrInTz(timezone);
   const todayTasks = useMemo(() =>
-    tasks.filter(t => !t.isDeleted && t.dueDate && isToday(t.dueDate) && !t.parentId)
+    tasks.filter(t => !t.isDeleted && t.dueDate && isToday(t.dueDate, timezone) && !t.parentId)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.priority - b.priority),
-    [tasks]
+    [tasks, timezone]
   );
   const overdueTasks = useMemo(() =>
-    tasks.filter(t => !t.isDeleted && t.dueDate && isOverdue(t.dueDate) && !t.completed && !t.parentId),
-    [tasks]
+    tasks.filter(t => !t.isDeleted && t.dueDate && isOverdue(t.dueDate, timezone) && !t.completed && !t.parentId),
+    [tasks, timezone]
   );
   const activeTasks = todayTasks.filter(t => !t.completed);
   const completedTasks = todayTasks.filter(t => t.completed);
@@ -58,7 +61,7 @@ export default function TodayPage() {
   };
 
   const handleRescheduleOverdue = async () => {
-    const overdue = tasks.filter(t => !t.isDeleted && t.dueDate && isOverdue(t.dueDate) && !t.completed);
+    const overdue = tasks.filter(t => !t.isDeleted && t.dueDate && isOverdue(t.dueDate, timezone) && !t.completed);
     const todayDate = new Date().toISOString();
     for (const t of overdue) {
       updateTask(t.id, { dueDate: todayDate });
@@ -98,7 +101,7 @@ export default function TodayPage() {
         <CalendarDays className="w-5 h-5 sm:w-6 sm:h-6 text-violet-500 flex-shrink-0" />
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Today</h1>
-          <p className="text-sm text-gray-400 truncate">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+          <p className="text-sm text-gray-400 truncate">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: timezone })}</p>
         </div>
         <div className="ml-auto flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-shrink-0">
           <span className="font-semibold text-violet-600">{activeTasks.length}</span>

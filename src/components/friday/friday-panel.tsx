@@ -3,9 +3,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Send, X, Minimize2, Maximize2,
-  RotateCcw, CheckCircle2, Calendar, Zap,
-  Loader2, ChevronRight, ExternalLink,
+  RotateCcw, CheckCircle2, Calendar,
+  Loader2, RefreshCw,
 } from "lucide-react";
+import { BriefingMessage } from "@/components/friday/briefing-message";
+import { apiFetch } from "@/lib/api";
+import type { DailyBriefing } from "@/types/daily-briefing";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { ChatMessage } from "@/app/api/friday/route";
@@ -27,6 +30,8 @@ interface AssistantMessage {
   tasks?: FridayTask[];
   createdTask?: { id: string; title: string };
   isLoading?: boolean;
+  /** If set, renders as structured daily briefing instead of markdown */
+  briefing?: DailyBriefing;
 }
 
 // ─── Suggested prompts ────────────────────────────────────────────────────────
@@ -172,6 +177,25 @@ function FridayAvatar({ size = "sm" }: { size?: "sm" | "md" }) {
   );
 }
 
+// ─── Briefing suggested prompts ───────────────────────────────────────────────
+
+const BRIEFING_PROMPTS = [
+  { icon: "📋", label: "What's due today?", prompt: "What tasks are due today?" },
+  { icon: "🔴", label: "Show overdue", prompt: "Show me all overdue tasks" },
+  { icon: "📊", label: "Weekly summary", prompt: "Give me a summary of my week" },
+  { icon: "⏰", label: "2 hours free", prompt: "I have 2 hours free, what should I work on?" },
+  { icon: "🎯", label: "Top priorities", prompt: "What are my top priority tasks right now?" },
+  { icon: "📅", label: "This week plan", prompt: "What's coming up this week?" },
+];
+
+// ─── localStorage key for last briefing date ──────────────────────────────────
+
+const LAST_BRIEFING_KEY = "friday:lastBriefingDate";
+
+function getTodayKey(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export function FridayPanel({ onClose }: { onClose: () => void }) {
@@ -180,20 +204,75 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [briefingLoading, setBriefingLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Greeting on open
+  // Load daily briefing on first open of the day
+  const loadBriefing = useCallback(async (forceRefresh = false) => {
+    setBriefingLoading(true);
+    try {
+      const url = forceRefresh
+        ? "/api/friday/daily-briefing?refresh=1"
+        : "/api/friday/daily-briefing";
+      const res = await apiFetch(url);
+      if (!res.ok) throw new Error("briefing unavailable");
+      const data = await res.json() as { briefing: DailyBriefing };
+      const briefingMsg: AssistantMessage = {
+        role: "assistant",
+        content: "",
+        briefing: data.briefing,
+      };
+      setMessages(prev => {
+        // Replace the placeholder greeting with briefing
+        const withoutGreeting = prev.filter(m => !m.content.includes("I'm **Friday**"));
+        return [briefingMsg, ...withoutGreeting];
+      });
+      // Remember we showed briefing today
+      try { localStorage.setItem(LAST_BRIEFING_KEY, getTodayKey()); } catch { /* noop */ }
+    } catch {
+      // Fallback: keep the regular greeting
+    } finally {
+      setBriefingLoading(false);
+    }
+  }, []);
+
+  // Greeting on open + auto-briefing if first open of the day
   useEffect(() => {
     const hour = new Date().getHours();
     const greeting =
       hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-    setMessages([
-      {
+
+    let lastShown = "";
+    try { lastShown = localStorage.getItem(LAST_BRIEFING_KEY) ?? ""; } catch { /* noop */ }
+
+    if (lastShown !== getTodayKey()) {
+      // First open today: show briefing
+      setMessages([{
         role: "assistant",
         content: `${greeting}! 👋 I'm **Friday**, your AI productivity assistant.\n\nI can help you manage tasks, check deadlines, create tasks from natural language, and give you smart suggestions. What can I do for you today?`,
-      },
-    ]);
+      }]);
+      loadBriefing();
+    } else {
+      // Already shown today: regular greeting
+      setMessages([{
+        role: "assistant",
+        content: `${greeting}! 👋 I'm **Friday**, your AI productivity assistant.\n\nI can help you manage tasks, check deadlines, create tasks from natural language, and give you smart suggestions. What can I do for you today?`,
+      }]);
+    }
+  }, [loadBriefing]);
+
+  // Listen for external prompt injection (e.g. from DailyBriefingCard "Ask Friday" CTA)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ prompt?: string }>).detail;
+      if (detail?.prompt) {
+        setInput(detail.prompt);
+        setTimeout(() => inputRef.current?.focus(), 150);
+      }
+    };
+    window.addEventListener("friday:open", handler);
+    return () => window.removeEventListener("friday:open", handler);
   }, []);
 
   useEffect(() => {
@@ -333,6 +412,35 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
     }, 100);
   };
 
+  const handleRefreshBriefing = () => {
+    loadBriefing(true);
+  };
+
+  const handleBriefingComplete = async (taskId: string) => {
+    try {
+      await apiFetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true, completedAt: new Date().toISOString() }),
+      });
+      window.dispatchEvent(new CustomEvent("friday:task-created"));
+    } catch { /* noop */ }
+  };
+
+  const handleBriefingReschedule = async (taskId: string) => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(12, 0, 0, 0);
+    try {
+      await apiFetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: tomorrow.toISOString() }),
+      });
+      window.dispatchEvent(new CustomEvent("friday:task-created"));
+    } catch { /* noop */ }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -382,8 +490,33 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
         <>
           {/* Messages area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {briefingLoading && messages.length <= 1 && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 dark:bg-violet-950/20 rounded-xl border border-violet-100 dark:border-violet-900/40">
+                <Loader2 className="w-4 h-4 text-violet-500 animate-spin flex-shrink-0" />
+                <p className="text-xs text-violet-600 dark:text-violet-400">Preparing your daily briefing…</p>
+              </div>
+            )}
             {messages.map((msg, i) => (
-              <MessageBubble key={i} msg={msg} />
+              msg.briefing ? (
+                <div key={i} className="space-y-2">
+                  <BriefingMessage
+                    briefing={msg.briefing}
+                    onComplete={handleBriefingComplete}
+                    onReschedule={handleBriefingReschedule}
+                    onAsk={content => sendMessage(content)}
+                  />
+                  <button
+                    onClick={handleRefreshBriefing}
+                    disabled={briefingLoading}
+                    className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-600 transition-colors disabled:opacity-50 ml-1"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Refresh briefing
+                  </button>
+                </div>
+              ) : (
+                <MessageBubble key={i} msg={msg} />
+              )
             ))}
             <div ref={bottomRef} />
           </div>
@@ -392,7 +525,7 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
           {history.length === 0 && (
             <div className="px-4 pb-2">
               <div className="flex flex-wrap gap-1.5">
-                {SUGGESTED_PROMPTS.map((s) => (
+                {BRIEFING_PROMPTS.map((s) => (
                   <button
                     key={s.prompt}
                     onClick={() => sendMessage(s.prompt)}

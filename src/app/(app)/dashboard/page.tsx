@@ -13,6 +13,9 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 import Link from "next/link";
 import { EmailIntelligenceWidget } from "@/components/microsoft/email-intelligence-widget";
+import { DailyBriefingCard } from "@/components/friday/daily-briefing-card";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
+import { getTodayStrInTz } from "@/lib/timezone";
 
 interface Sprint {
   id: string; name: string; goal?: string;
@@ -24,6 +27,7 @@ interface Sprint {
 
 export default function DashboardPage() {
   const { tasks, projects, updateTask, removeTask } = useTaskStore();
+  const { timezone } = useTimezoneCtx();
   const [aiResult, setAiResult] = useState<AIFocusResult | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [isLoadingAI, setIsLoadingAI] = useState(false);
@@ -98,10 +102,10 @@ export default function DashboardPage() {
   };
 
   // ── Derived stats ────────────────────────────────────────────────────────
-  const todayTotal = tasks.filter(t => t.dueDate && isToday(t.dueDate) && !t.isDeleted).length;
-  const todayDone = tasks.filter(t => t.dueDate && isToday(t.dueDate) && t.completed && !t.isDeleted).length;
+  const todayTotal = tasks.filter(t => t.dueDate && isToday(t.dueDate, timezone) && !t.isDeleted).length;
+  const todayDone = tasks.filter(t => t.dueDate && isToday(t.dueDate, timezone) && t.completed && !t.isDeleted).length;
   const completionPct = todayTotal > 0 ? Math.round((todayDone / todayTotal) * 100) : 0;
-  const overdueCount = tasks.filter(t => !t.isDeleted && !t.completed && t.dueDate && isOverdue(t.dueDate)).length;
+  const overdueCount = tasks.filter(t => !t.isDeleted && !t.completed && t.dueDate && isOverdue(t.dueDate, timezone)).length;
 
   const focusTasks = aiResult?.priorities
     ?.filter(p => !snoozed.has(p.taskId))
@@ -125,9 +129,10 @@ export default function DashboardPage() {
 
   // Upcoming deadlines widget
   const now = new Date();
-  const todayStr = now.toISOString().split("T")[0];
-  const tomorrowStr = new Date(now.getTime() + 86400000).toISOString().split("T")[0];
-  const weekStr = new Date(now.getTime() + 7 * 86400000).toISOString().split("T")[0];
+  const tz = timezone;
+  const todayStr = getTodayStrInTz(tz);
+  const tomorrowStr = getTodayStrInTz(tz, 1);
+  const weekStr = getTodayStrInTz(tz, 7);
 
   const upcoming = tasks.filter(t => !t.isDeleted && !t.completed && t.dueDate);
   const todayCount = upcoming.filter(t => t.dueDate!.startsWith(todayStr)).length;
@@ -146,7 +151,7 @@ export default function DashboardPage() {
     : 0;
   const sprintProject = activeSprint ? projects.find(p => p.id === activeSprint.projectId) : null;
 
-  const greetingHour = now.getHours();
+  const greetingHour = new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getHours();
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
 
   return (
@@ -159,10 +164,24 @@ export default function DashboardPage() {
               {aiResult?.greeting || `${greeting} 👋`}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: timezone })}
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ─── Daily Briefing compact bar ─── */}
+      <div className="mb-4">
+        <DailyBriefingCard
+          onTaskComplete={(taskId) => handleComplete(taskId, true)}
+          onTaskReschedule={async (taskId) => {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(12, 0, 0, 0);
+            await handleEdit(taskId, { dueDate: tomorrow.toISOString() });
+            toast.success("Task moved to tomorrow");
+          }}
+        />
       </div>
 
       {/* 2-Column Grid */}
