@@ -63,9 +63,9 @@ export default function MilestonesPage() {
   const nonInboxProjects = projects.filter((p) => !p.isInbox);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto space-y-5 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
               <Target className="w-5 h-5 text-violet-600 dark:text-violet-400" />
@@ -75,9 +75,11 @@ export default function MilestonesPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Track project checkpoints and deadlines</p>
             </div>
           </div>
-          <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-medium transition-colors">
+          <div className="sm:flex-shrink-0">
+          <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-medium transition-colors w-full sm:w-auto justify-center">
             <Plus className="w-4 h-4" /> New Milestone
           </button>
+          </div>
         </div>
 
         <div className="flex gap-2 flex-wrap">

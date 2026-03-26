@@ -399,7 +399,7 @@ export default function UpcomingPage() {
   return (
     <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-950/20">
       {/* ── Top bar ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 pt-6 pb-4 gap-3 flex-wrap">
+      <div className="flex items-center justify-between px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 gap-3 flex-wrap">
         {/* Left: title + date range */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
@@ -481,7 +481,7 @@ export default function UpcomingPage() {
       </div>
 
       {/* ── Content ─────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto px-6 pb-6">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-6">
         {view === "calendar" ? (
           <UpcomingCalendar
             tasks={tasks}
@@ -491,8 +491,8 @@ export default function UpcomingPage() {
           />
         ) : (
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            {/* 5-column grid — always fills available width */}
-            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${WINDOW}, minmax(0, 1fr))` }}>
+            {/* Responsive grid: 1 col mobile, 2 cols tablet, 3 cols md, 5 cols xl */}
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
               {tasksByDay.map(({ date, tasks: dayTasks }) => (
                 <DayColumn
                   key={toLocalDateStr(date)}

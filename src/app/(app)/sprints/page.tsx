@@ -104,9 +104,9 @@ export default function SprintsPage() {
     : [];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto space-y-5 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
               <Zap className="w-5 h-5 text-amber-600 dark:text-amber-400" />
@@ -116,7 +116,7 @@ export default function SprintsPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Manage Agile sprints and iteration planning</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 w-full sm:w-auto">
             <select value={selectedProject} onChange={e => setSelectedProject(e.target.value)}
               className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
             >

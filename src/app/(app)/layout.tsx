@@ -11,7 +11,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <DataProvider>
       <div className="flex h-screen bg-gray-50 dark:bg-gray-950 overflow-hidden">
         <Sidebar user={session.user} />
-        <main className="flex-1 overflow-auto">
+        {/* On mobile, push content right of the hamburger button */}
+        <main className="flex-1 overflow-auto min-w-0 pt-0 lg:pt-0">
+          <div className="lg:hidden h-12" />{/* spacer for mobile hamburger */}
           {children}
         </main>
       </div>

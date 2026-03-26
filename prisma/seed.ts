@@ -1,9 +1,9 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaClient } from '../src/generated/prisma/client/client'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 
-const url = process.env.DATABASE_URL ?? "file:./data/app.db";
-const adapter = new PrismaBetterSqlite3({ url });
-const prisma = new PrismaClient({ adapter });
+const url     = process.env.DATABASE_URL ?? 'file:./data/app.db'
+const adapter = new PrismaBetterSqlite3({ url })
+const prisma  = new PrismaClient({ adapter })
 
 // Pre-computed bcrypt hash for "password123" (cost 12)
 const DEMO_PASSWORD_HASH = "$2b$12$1OT3gZ8bRWXqq1SZfznox.kAOVBWOFjK2BPXTIGFo2tKL56OuwHuu";

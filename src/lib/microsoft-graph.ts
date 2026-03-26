@@ -179,8 +179,9 @@ async function graphFetch<T>(
   });
 
   if (!response.ok) {
-    const error = (await response.json()) as GraphError;
-    console.error(`[Microsoft] Graph API error (${endpoint}):`, error);
+    let error: unknown;
+    try { error = await response.json(); } catch { error = { status: response.status, text: response.statusText }; }
+    console.error(`[Microsoft] Graph API error (${endpoint}):`, JSON.stringify(error));
     return null;
   }
 
@@ -201,11 +202,16 @@ export async function fetchRecentEmails(
 
   const { top = 50, filter, fetchAll = false, maxPages = 10 } = options;
   const select = "id,subject,from,receivedDateTime,bodyPreview,body,webLink,isRead,hasAttachments,importance,categories,conversationId";
+  // Use /me/mailFolders/inbox/messages to scope to Inbox only.
+  // Do NOT add parentFolderId to the $filter — it is unsupported on this endpoint
+  // and causes the Graph API to silently return 0 results.
   let endpoint = `/me/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${select}`;
 
   if (filter) {
     endpoint += `&$filter=${encodeURIComponent(filter)}`;
   }
+
+  console.log(`[GraphAPI] fetchRecentEmails endpoint: ${endpoint}`);
 
   const allMessages: Record<string, unknown>[] = [];
   let nextUrl: string | null = endpoint;
@@ -216,14 +222,26 @@ export async function fetchRecentEmails(
       tokenResult.accessToken,
       nextUrl
     );
-    if (!pageData?.value?.length) break;
 
+    if (!pageData) {
+      console.warn(`[GraphAPI] fetchRecentEmails page ${pageCount + 1} returned null — stopping pagination`);
+      break;
+    }
+    if (!pageData.value?.length) {
+      console.log(`[GraphAPI] fetchRecentEmails page ${pageCount + 1} returned 0 messages — done`);
+      break;
+    }
+
+    console.log(`[GraphAPI] fetchRecentEmails page ${pageCount + 1}: ${pageData.value.length} messages`);
     allMessages.push(...(pageData.value as Record<string, unknown>[]));
     pageCount += 1;
 
     if (!fetchAll) break;
     nextUrl = pageData["@odata.nextLink"] ?? null;
   }
+
+  console.log(`[GraphAPI] fetchRecentEmails total: ${allMessages.length} messages (${pageCount} pages)`);
+
 
   return allMessages.map((m) => ({
     id: m.id as string,

@@ -12,10 +12,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Stub secrets so Next.js static analysis never crashes at build time
 ENV NEXTAUTH_SECRET=build_placeholder
 ENV AUTH_SECRET=build_placeholder
-ENV DATABASE_URL=file:./placeholder.db
+ENV DATABASE_URL=file:./data/placeholder.db
 ENV NEXT_PUBLIC_BASE_PATH=/apps/xklwb3f46m48u5s4h2h5d4pd
 RUN mkdir -p public
-# Generate Prisma Client then build the Next.js app
+# Generate Prisma Client (v7: outputs to src/generated/prisma/client) then build
 # DB migrations are handled by the dedicated migrate stage / deployment pipeline
 RUN npx prisma generate
 RUN npm run build
@@ -28,14 +28,15 @@ WORKDIR /app
 # Copy all node_modules (including native better-sqlite3) from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 # Copy the generated Prisma client from builder (avoids regenerating)
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/src/generated ./src/generated
 # Copy source files needed at migration time
 COPY prisma ./prisma
 COPY prisma.config.ts .
 COPY package.json .
+COPY tsconfig.json .
 # Migration entrypoint used by deployment pipeline:
-#   npm run db:migrate  →  npx tsx prisma/migrate.ts
-#   npm run db:seed     →  npx tsx prisma/seed.ts
+#   npm run db:migrate  →  tsx prisma/migrate.ts
+#   npm run db:seed     →  tsx prisma/seed.ts
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -53,7 +54,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nextjs:nodejs /app/src/generated ./src/generated
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings

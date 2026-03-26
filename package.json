@@ -2,15 +2,16 @@
   "name": "flowfocus",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src --ext .ts,.tsx",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:migrate": "npx tsx prisma/migrate.ts",
-    "db:seed": "npx tsx prisma/seed.ts"
+    "db:migrate": "tsx prisma/migrate.ts",
+    "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "next": "^15.5.14",

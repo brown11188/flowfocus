@@ -508,7 +508,7 @@ export default function KanbanPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Project selector */}
           <select
             value={selectedProjectId}
@@ -558,7 +558,7 @@ export default function KanbanPage() {
           <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
         </div>
       ) : (
-        <div className="flex-1 overflow-x-auto p-6">
+        <div className="flex-1 overflow-x-auto p-3 sm:p-6">
           <DndContext
             sensors={sensors}
             collisionDetection={rectIntersection}

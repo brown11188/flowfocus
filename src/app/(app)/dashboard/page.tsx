@@ -150,12 +150,12 @@ export default function DashboardPage() {
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-5 sm:mb-6">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {aiResult?.greeting || `${greeting} 👋`}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -166,13 +166,13 @@ export default function DashboardPage() {
       </div>
 
       {/* 2-Column Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5 sm:gap-6">
 
         {/* ─── LEFT COLUMN ─────────────────────────────────────── */}
         <div className="space-y-5 min-w-0">
 
           {/* Stats row — 4 cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             {/* Today Progress */}
             <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-100 dark:border-gray-800">
               <div className="flex items-center gap-2 mb-2">
@@ -279,14 +279,14 @@ export default function DashboardPage() {
                   <Link
                     key={p.id}
                     href={"/projects/" + p.id}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
+                    className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
                   >
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
                     <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
                       {p.name}
                     </span>
                     <span className="text-xs text-gray-400 flex-shrink-0">{p.done}/{p.total}</span>
-                    <div className="w-24 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden flex-shrink-0">
+                    <div className="hidden sm:block w-24 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden flex-shrink-0">
                       <div
                         className={cn("h-full rounded-full transition-all", p.pct === 100 ? "bg-green-500" : "bg-violet-500")}
                         style={{ width: p.pct + "%" }}

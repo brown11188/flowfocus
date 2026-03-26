@@ -8,7 +8,7 @@ import {
   Mail, RefreshCw, AlertCircle, Clock, RotateCcw,
   ExternalLink, ChevronDown, ChevronUp, Sparkles,
   MailOpen, CheckCircle2, ShieldAlert,
-  Tag,
+  Tag, Building2, Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -136,7 +136,13 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (totalCount === 0) return null;
+  // Items may contain both Internal and External — split them
+  const externalItems = items.filter(i => i.clientLabel !== "Internal");
+  const internalItems = items.filter(i => i.clientLabel === "Internal");
+  const externalCount = externalItems.length;
+  const internalCount = internalItems.length;
   const hasMore = totalCount > items.length;
+
   return (
     <div>
       <button
@@ -145,14 +151,23 @@ function CollapsibleSection({
       >
         <Icon className={cn("w-3.5 h-3.5 flex-shrink-0", color)} />
         <span className={cn("text-xs font-semibold", color)}>{label}</span>
-        <span className={cn(
-          "ml-1 text-[10px] font-bold px-1.5 py-0 rounded-full",
-          color === "text-red-500" ? "bg-red-100 text-red-600 dark:bg-red-900/40" :
-          color === "text-amber-500" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40" :
-          "bg-blue-100 text-blue-600 dark:bg-blue-900/40"
-        )}>
-          {totalCount}
-        </span>
+        {/* External badge */}
+        {externalCount > 0 && (
+          <span className={cn(
+            "ml-1 text-[10px] font-bold px-1.5 py-0 rounded-full",
+            color === "text-red-500" ? "bg-red-100 text-red-600 dark:bg-red-900/40" :
+            color === "text-amber-500" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40" :
+            "bg-blue-100 text-blue-600 dark:bg-blue-900/40"
+          )}>
+            {externalCount}
+          </span>
+        )}
+        {/* Internal badge */}
+        {internalCount > 0 && (
+          <span className="text-[10px] font-bold px-1.5 py-0 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            +{internalCount} internal
+          </span>
+        )}
         {hasMore && (
           <span className="text-[9px] text-gray-400 font-normal">
             (showing {items.length})
@@ -162,16 +177,83 @@ function CollapsibleSection({
         {open ? <ChevronUp className="w-3 h-3 text-gray-400" /> : <ChevronDown className="w-3 h-3 text-gray-400" />}
       </button>
       {open && (
-        <div className="mt-1.5 space-y-1.5 pl-1">
-          {items.map(item => (
-            <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} />
-          ))}
+        <div className="mt-1.5 space-y-2 pl-1">
+          {/* External emails first */}
+          {externalItems.length > 0 && (
+            <div className="space-y-1.5">
+              {internalItems.length > 0 && (
+                <div className="flex items-center gap-1 text-[9px] font-semibold text-gray-400 uppercase tracking-wide px-0.5">
+                  <Globe className="w-2.5 h-2.5" /> External
+                </div>
+              )}
+              {externalItems.map(item => (
+                <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} />
+              ))}
+            </div>
+          )}
+          {/* Internal emails in a collapsible sub-section */}
+          {internalItems.length > 0 && (
+            <InternalSubSection items={internalItems} />
+          )}
           {hasMore && (
             <div className="text-[10px] text-gray-400 italic text-center py-1">
               … and {totalCount - items.length} more. Open full inbox to see all.
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function InternalSubSection({ items }: { items: EmailDigestItem[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <Building2 className="w-3 h-3 text-slate-400" />
+        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">Internal (saigontechnology.com)</span>
+        <span className="ml-1 text-[9px] font-bold px-1.5 py-0 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+          {items.length}
+        </span>
+        <span className="flex-1" />
+        {open
+          ? <ChevronUp className="w-2.5 h-2.5 text-slate-400" />
+          : <ChevronDown className="w-2.5 h-2.5 text-slate-400" />}
+      </button>
+      {open && (
+        <div className="p-2 space-y-1.5 bg-slate-50/50 dark:bg-slate-900/40">
+          {items.map(item => (
+            <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── StatCard ────────────────────────────────────────────────────────────────
+function StatCard({
+  value, total, label, bg, border, valueColor, subColor,
+}: {
+  value: number;
+  total: number;
+  label: string;
+  bg: string;
+  border: string;
+  valueColor: string;
+  subColor: string;
+}) {
+  const internalCount = total - value;
+  return (
+    <div className={cn("rounded-lg border p-2 text-center", bg, border)}>
+      <div className={cn("text-lg font-bold", valueColor)}>{value}</div>
+      <div className={cn("text-[9px] font-medium leading-tight mt-0.5", subColor)}>{label}</div>
+      {internalCount > 0 && (
+        <div className="text-[8px] text-slate-400 mt-0.5">+{internalCount} internal</div>
       )}
     </div>
   );
@@ -284,10 +366,25 @@ export function EmailIntelligenceWidget() {
   const needs = digest?.needsReply ?? [];
   const follow = digest?.followUp ?? [];
   const readAgain = digest?.readAgain ?? [];
-  const missedCount = digest?.missedReplyCount ?? missed.length;
-  const needsCount = digest?.needsReplyCount ?? needs.length;
-  const followCount = digest?.followUpCount ?? follow.length;
-  const readAgainCount = digest?.readAgainCount ?? readAgain.length;
+
+  // For the stats grid, only count External emails (Internal shown separately)
+  const missedExternal = missed.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
+  const needsExternal  = needs.filter((i: EmailDigestItem)  => i.clientLabel !== "Internal");
+  const followExternal = follow.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
+  const readAgainExternal = readAgain.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
+
+  // True DB counts — may include internal; we show separate breakdown below
+  const missedCount    = digest?.missedReplyCount ?? missed.length;
+  const needsCount     = digest?.needsReplyCount  ?? needs.length;
+  const followCount    = digest?.followUpCount    ?? follow.length;
+  const readAgainCount = digest?.readAgainCount   ?? readAgain.length;
+
+  // External-only counts for the badge (what user should act on)
+  const missedExternalCount    = missedExternal.length;
+  const needsExternalCount     = needsExternal.length;
+  const followExternalCount    = followExternal.length;
+  const readAgainExternalCount = readAgainExternal.length;
+  const totalExternal = missedExternalCount + needsExternalCount + followExternalCount + readAgainExternalCount;
   const total = missedCount + needsCount + followCount + readAgainCount;
   const isScanned = digest?.status === "done";
   const scanDate = digest?.scanDate;
@@ -395,27 +492,24 @@ export function EmailIntelligenceWidget() {
             </div>
           )}
 
-          {/* Stats row */}
+          {/* Stats row — External counts (primary action items) */}
           <div className="grid grid-cols-4 gap-1.5">
-            <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900 p-2 text-center">
-              <div className="text-lg font-bold text-red-500">{missedCount}</div>
-              <div className="text-[9px] text-red-400 font-medium leading-tight mt-0.5">Missed</div>
-            </div>
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 p-2 text-center">
-              <div className="text-lg font-bold text-amber-500">{needsCount}</div>
-              <div className="text-[9px] text-amber-400 font-medium leading-tight mt-0.5">Needs Reply</div>
-            </div>
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 p-2 text-center">
-              <div className="text-lg font-bold text-blue-500">{followCount}</div>
-              <div className="text-[9px] text-blue-400 font-medium leading-tight mt-0.5">Follow Up</div>
-            </div>
-            <div className="rounded-lg bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900 p-2 text-center">
-              <div className="text-lg font-bold text-violet-500">{readAgainCount}</div>
-              <div className="text-[9px] text-violet-400 font-medium leading-tight mt-0.5">Read Again</div>
-            </div>
+            <StatCard value={missedExternalCount} total={missedCount} label="Missed" bg="bg-red-50 dark:bg-red-950/20" border="border-red-100 dark:border-red-900" valueColor="text-red-500" subColor="text-red-400" />
+            <StatCard value={needsExternalCount} total={needsCount} label="Needs Reply" bg="bg-amber-50 dark:bg-amber-950/20" border="border-amber-100 dark:border-amber-900" valueColor="text-amber-500" subColor="text-amber-400" />
+            <StatCard value={followExternalCount} total={followCount} label="Follow Up" bg="bg-blue-50 dark:bg-blue-950/20" border="border-blue-100 dark:border-blue-900" valueColor="text-blue-500" subColor="text-blue-400" />
+            <StatCard value={readAgainExternalCount} total={readAgainCount} label="Read Again" bg="bg-violet-50 dark:bg-violet-950/20" border="border-violet-100 dark:border-violet-900" valueColor="text-violet-500" subColor="text-violet-400" />
           </div>
+          {/* Internal summary pill — shown only when there are internal items */}
+          {(total - totalExternal) > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+              <Building2 className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                <span className="font-semibold">{total - totalExternal}</span> internal email{(total - totalExternal) > 1 ? "s" : ""} from <span className="font-medium">saigontechnology.com</span> — shown separately below each section
+              </span>
+            </div>
+          )}
 
-          {/* All clear */}
+          {/* All clear — only when truly nothing, including internal */}
           {total === 0 && (
             <div className="text-center py-2">
               <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
@@ -432,7 +526,7 @@ export function EmailIntelligenceWidget() {
                 color="text-red-500"
                 items={missed}
                 totalCount={missedCount}
-                defaultOpen={missedCount > 0}
+                defaultOpen={missedExternalCount > 0}
               />
               <CollapsibleSection
                 label="Needs Reply"
@@ -440,7 +534,7 @@ export function EmailIntelligenceWidget() {
                 color="text-amber-500"
                 items={needs}
                 totalCount={needsCount}
-                defaultOpen={missedCount === 0 && needsCount > 0}
+                defaultOpen={missedExternalCount === 0 && needsExternalCount > 0}
               />
               <CollapsibleSection
                 label="Follow Up"
@@ -448,7 +542,7 @@ export function EmailIntelligenceWidget() {
                 color="text-blue-500"
                 items={follow}
                 totalCount={followCount}
-                defaultOpen={missedCount === 0 && needsCount === 0}
+                defaultOpen={missedExternalCount === 0 && needsExternalCount === 0}
               />
               <CollapsibleSection
                 label="Read Again"
@@ -456,7 +550,7 @@ export function EmailIntelligenceWidget() {
                 color="text-violet-500"
                 items={readAgain}
                 totalCount={readAgainCount}
-                defaultOpen={missedCount === 0 && needsCount === 0 && followCount === 0}
+                defaultOpen={missedExternalCount === 0 && needsExternalCount === 0 && followExternalCount === 0}
               />
             </div>
           )}
@@ -468,8 +562,21 @@ export function EmailIntelligenceWidget() {
               {syncLabel ? `Last scan: ${syncLabel}` : "Not yet scanned"}
             </div>
             <div className="text-[10px] text-gray-400 text-right">
-              <div>{digest?.noReplyFiltered ?? 0} no-reply filtered{digest?.totalScanned ? ` · ${digest.totalScanned} scanned` : ""}</div>
-              <div>Inbox · last 7 days · top 20 shown per section</div>
+              <div>
+                {digest?.noReplyFiltered ?? 0} no-reply filtered
+                {digest?.totalScanned ? ` · ${digest.totalScanned} scanned` : ""}
+              </div>
+              <div className="flex items-center justify-end gap-1">
+                <Globe className="w-2.5 h-2.5" />
+                <span>{totalExternal} external</span>
+                {(total - totalExternal) > 0 && (
+                  <>
+                    <span className="text-gray-300">|</span>
+                    <Building2 className="w-2.5 h-2.5" />
+                    <span>{total - totalExternal} internal</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 

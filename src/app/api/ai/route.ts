@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 // Docs: https://deepinfra.com/docs/advanced/openai_api
 const DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai";
 const DEEPINFRA_MODEL =
-  process.env.DEEPINFRA_MODEL ?? "zai-org/GLM-5";
+  process.env.DEEPINFRA_MODEL ?? "meta-llama/Llama-3.3-70B-Instruct-Turbo";
 
 async function callDeepInfra(
   apiKey: string,

@@ -40,7 +40,10 @@ function getLookbackStartDate(): Date {
 }
 
 function buildInboxFilterSince(date: Date): string {
-  return `receivedDateTime ge ${date.toISOString()} and parentFolderId ne null`;
+  // Note: When querying /me/mailFolders/inbox/messages the folder is already
+  // scoped to Inbox — do NOT add parentFolderId filter (it is not supported
+  // on this endpoint and causes Graph API to return 0 results).
+  return `receivedDateTime ge ${date.toISOString()}`;
 }
 
 function stripHtml(input: string | null): string {
@@ -125,17 +128,20 @@ function isAutomatedSubject(subject: string | null): boolean {
 }
 
 // ─── Internal / Colleague Detection ─────────────────────────────────────────
-// Emails from the same company domain or common internal senders
-// are NOT external clients, so they use a different urgency baseline.
-const INTERNAL_DOMAIN = "saiogntechnology.com";
+// Emails from the same company domain are treated as "internal" — they still
+// get classified (they can be missed/needs-reply) but are labelled "Internal"
+// instead of "External". Only truly automated senders (no-reply / noreply)
+// are excluded entirely at this stage.
+const INTERNAL_DOMAIN = "saigontechnology.com";
 
+// shouldExcludeEmail: ONLY exclude automated / no-reply senders.
+// Do NOT exclude internal domain here — internal emails can still need action.
 export function shouldExcludeEmail(fromEmail: string | null): boolean {
   if (!fromEmail) return true;
   const email = fromEmail.toLowerCase().trim();
   return (
     email.includes("no-reply")
     || email.includes("noreply")
-    || email.endsWith(`@${INTERNAL_DOMAIN}`)
   );
 }
 
@@ -154,11 +160,18 @@ export function detectClientEmail(
   if (!fromEmail) return { isClient: false, label: null };
 
   const email = fromEmail.toLowerCase().trim();
+
+  // Exclude automated / no-reply senders entirely
   if (shouldExcludeEmail(email)) {
     return { isClient: false, label: null };
   }
 
-  return { isClient: true, label: "Inbox" };
+  // Internal senders are still valid — label them so the UI can distinguish
+  if (isInternalSender(email)) {
+    return { isClient: true, label: "Internal" };
+  }
+
+  return { isClient: true, label: "External" };
 }
 
 // ─── Rule-based Urgency ──────────────────────────────────────────────────────
@@ -404,6 +417,8 @@ export async function runEmailScan(userId: string): Promise<void> {
     // ── Step 1: filter no-reply / automated senders ──────────────────────────
     const humanEmails: typeof rawEmails = [];
     for (const email of rawEmails) {
+      // isNoReply already covers most patterns; shouldExcludeEmail covers
+      // additional noreply variants not caught by display-name checks.
       if (
         isNoReply(email.from?.email ?? null, email.from?.name ?? null) ||
         shouldExcludeEmail(email.from?.email ?? null)
@@ -418,6 +433,12 @@ export async function runEmailScan(userId: string): Promise<void> {
       }
       humanEmails.push(email);
     }
+
+    console.log(
+      `[EmailScan] user=${userId} rawFetched=${rawEmails.length}` +
+      ` noReplyFiltered=${noReplyFiltered} automatedFiltered=${automatedFiltered}` +
+      ` humanEmails=${humanEmails.length}`
+    );
 
     // ── Step 2: dedup threads — keep latest email per conversation ───────────
     // Attach daysAgo for dedup, then dedup

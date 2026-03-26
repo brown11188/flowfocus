@@ -93,15 +93,16 @@ export default function TodayPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <CalendarDays className="w-6 h-6 text-violet-500" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Today</h1>
-          <p className="text-sm text-gray-400">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+    <div className="max-w-2xl mx-auto p-4 sm:p-6">
+      <div className="flex items-center gap-3 mb-5 sm:mb-6">
+        <CalendarDays className="w-5 h-5 sm:w-6 sm:h-6 text-violet-500 flex-shrink-0" />
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Today</h1>
+          <p className="text-sm text-gray-400 truncate">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         </div>
-        <div className="ml-auto flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-          <span className="font-semibold text-violet-600">{activeTasks.length}</span> remaining
+        <div className="ml-auto flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-shrink-0">
+          <span className="font-semibold text-violet-600">{activeTasks.length}</span>
+          <span className="hidden sm:inline">remaining</span>
         </div>
       </div>
 

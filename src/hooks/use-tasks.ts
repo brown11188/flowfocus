@@ -54,6 +54,9 @@ export function useTasks() {
     updateTask(id, { completed, completedAt: completed ? new Date().toISOString() : null });
     try {
       await apiFetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed, completedAt: completed ? new Date().toISOString() : null }),
       });
     } catch {
       updateTask(id, { completed: !completed });
@@ -65,6 +68,9 @@ export function useTasks() {
     updateTask(id, data);
     try {
       await apiFetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
     } catch {
       toast.error("Failed to update task");

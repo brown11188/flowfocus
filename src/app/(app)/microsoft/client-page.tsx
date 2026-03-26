@@ -195,9 +195,9 @@ function CalendarTab({
   const upcomingEvents = events.filter(e => !isToday(e.start.dateTime));
 
   return (
-    <div className="flex h-full gap-0">
+    <div className="flex h-full gap-0 relative">
       {/* Event list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-w-0">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -235,7 +235,7 @@ function CalendarTab({
             <p className="text-xs text-gray-400">Your Outlook Calendar is clear ahead!</p>
           </div>
         ) : (
-          <div className="px-6 py-4 space-y-6">
+          <div className="px-4 sm:px-6 py-4 space-y-6">
             {/* Today summary card */}
             {todayEvents.length > 0 && (
               <div className="p-4 bg-[#0078D4]/5 dark:bg-[#0078D4]/10 border border-[#0078D4]/20 rounded-2xl">
@@ -343,7 +343,9 @@ function CalendarTab({
 
       {/* Event detail panel */}
       {selectedEvent && (
-        <div className="w-80 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto flex-shrink-0">
+        <div className="fixed inset-0 z-40 flex sm:relative sm:inset-auto sm:z-auto">
+          <div className="absolute inset-0 bg-black/30 sm:hidden" onClick={() => setSelectedEvent(null)} />
+          <div className="relative w-full max-w-sm ml-auto sm:w-80 sm:max-w-none h-full border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto flex-shrink-0">
           <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900 dark:text-white">Event Details</span>
             <button onClick={() => setSelectedEvent(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">&times;</button>
@@ -411,6 +413,7 @@ function CalendarTab({
               </a>
             )}
           </div>
+          </div>
         </div>
       )}
     </div>
@@ -434,10 +437,10 @@ function EmailTab({
   const meetings = emails.filter(e => e.isMeetingInvite).length;
 
   return (
-    <div className="flex h-full gap-0">
-      <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full gap-0 relative">
+      <div className="flex-1 overflow-y-auto min-w-0">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
+        <div className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Outlook Inbox</h2>
@@ -527,7 +530,7 @@ function EmailTab({
 
       {/* Email detail panel */}
       {selectedEmail && (
-        <div className="w-80 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto flex-shrink-0">
+        <div className="fixed inset-y-0 right-0 z-40 w-full max-w-sm sm:relative sm:inset-auto sm:z-auto sm:w-80 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto flex-shrink-0 shadow-xl sm:shadow-none">
           <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900 dark:text-white">Email</span>
             <button onClick={() => setSelectedEmail(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">&times;</button>

@@ -674,17 +674,17 @@ function ProjectPageInner({ id }: { id: string }) {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-5">
           {project.isInbox ? (
-            <FolderOpen className="w-6 h-6 flex-shrink-0" style={{ color: project.color }} />
+            <FolderOpen className="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" style={{ color: project.color }} />
           ) : (
-            <Hash className="w-6 h-6 flex-shrink-0" style={{ color: project.color }} />
+            <Hash className="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" style={{ color: project.color }} />
           )}
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{project.name}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white truncate">{project.name}</h1>
             <p className="text-xs text-gray-400 mt-0.5">
               {activeTasks.length} active · {completedTasks.length} completed
             </p>

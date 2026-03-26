@@ -66,16 +66,16 @@ export default function IntegrationsPage() {
   const connectedCount = [clickup?.connected, microsoft?.connected].filter(Boolean).length;
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
               <Link2 className="w-5 h-5 text-violet-600 dark:text-violet-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Integrations</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Integrations</h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Connect your tools to supercharge FlowFocus
               </p>
@@ -83,7 +83,7 @@ export default function IntegrationsPage() {
           </div>
           {!loading && (
             <div className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium w-fit",
               connectedCount > 0
                 ? "bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-400"
                 : "bg-gray-100 dark:bg-gray-800 text-gray-500"
@@ -106,12 +106,12 @@ export default function IntegrationsPage() {
 
               {/* ClickUp Card */}
               <div className={cn(
-                "rounded-2xl border p-6 bg-white dark:bg-gray-900 shadow-sm transition-all hover:shadow-md",
+                "rounded-2xl border p-5 sm:p-6 bg-white dark:bg-gray-900 shadow-sm transition-all hover:shadow-md",
                 clickup?.connected ? "border-[#7B68EE]/30" : "border-gray-200 dark:border-gray-800"
               )}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-[#7B68EE]/10 flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-xl bg-[#7B68EE]/10 flex items-center justify-center flex-shrink-0">
                       <svg viewBox="0 0 32 32" className="w-6 h-6" fill="none">
                         <path d="M4.53 21.4L8.2 18.4c1.95 2.3 3.9 3.46 7.8 3.46s5.85-1.16 7.8-3.46l3.67 3c-2.73 3.2-6.4 4.87-11.47 4.87S7.26 24.6 4.53 21.4z" fill="#7B68EE"/>
                         <path d="M4 11.2l3.78 2.87C9.9 11.5 12.7 10.1 16 10.1s6.1 1.4 8.22 3.97L28 11.2C25.13 7.7 20.9 5.67 16 5.67S6.87 7.7 4 11.2z" fill="#FF79C6"/>
@@ -119,15 +119,15 @@ export default function IntegrationsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white">ClickUp</h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Task & project sync</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Task and project sync</p>
                     </div>
                   </div>
                   {clickup?.connected ? (
-                    <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-1 rounded-full">
+                    <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-1 rounded-full flex-shrink-0">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Connected
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
+                    <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full flex-shrink-0">
                       <XCircle className="w-3.5 h-3.5" /> Not connected
                     </span>
                   )}
@@ -136,12 +136,12 @@ export default function IntegrationsPage() {
                 {clickup?.connected ? (
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                      <Zap className="w-3.5 h-3.5 text-[#7B68EE]" />
+                      <Zap className="w-3.5 h-3.5 text-[#7B68EE] flex-shrink-0" />
                       <span>{clickup.workspaces?.length ?? 0} workspace{(clickup.workspaces?.length ?? 0) !== 1 ? "s" : ""} connected</span>
                     </div>
                     {clickup.lastSynced && (
                       <div className="flex items-center gap-2 text-xs text-gray-400">
-                        <Clock className="w-3.5 h-3.5" />
+                        <Clock className="w-3.5 h-3.5 flex-shrink-0" />
                         Last sync: {timeAgo(clickup.lastSynced)}
                       </div>
                     )}
@@ -168,12 +168,12 @@ export default function IntegrationsPage() {
 
               {/* Microsoft Card */}
               <div className={cn(
-                "rounded-2xl border p-6 bg-white dark:bg-gray-900 shadow-sm transition-all hover:shadow-md",
+                "rounded-2xl border p-5 sm:p-6 bg-white dark:bg-gray-900 shadow-sm transition-all hover:shadow-md",
                 microsoft?.connected ? "border-[#0078D4]/30" : "border-gray-200 dark:border-gray-800"
               )}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-[#0078D4]/10 flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-xl bg-[#0078D4]/10 flex items-center justify-center flex-shrink-0">
                       <svg viewBox="0 0 23 23" className="w-6 h-6">
                         <path fill="#f35325" d="M0 0h11v11H0z"/>
                         <path fill="#81bc06" d="M12 0h11v11H12z"/>
@@ -183,15 +183,15 @@ export default function IntegrationsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white">Microsoft 365</h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Outlook & Calendar</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Outlook and Calendar</p>
                     </div>
                   </div>
                   {microsoft?.connected ? (
-                    <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-1 rounded-full">
+                    <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-1 rounded-full flex-shrink-0">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Connected
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
+                    <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full flex-shrink-0">
                       <XCircle className="w-3.5 h-3.5" /> Not connected
                     </span>
                   )}
@@ -201,11 +201,11 @@ export default function IntegrationsPage() {
                   <div className="space-y-2 mb-4">
                     {microsoft.email && (
                       <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                        <Mail className="w-3.5 h-3.5 text-[#0078D4]" />
+                        <Mail className="w-3.5 h-3.5 text-[#0078D4] flex-shrink-0" />
                         <span className="truncate">{microsoft.email}</span>
                       </div>
                     )}
-                    <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
                       <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-medium", microsoft.emailSync ? "bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-400" : "bg-gray-100 dark:bg-gray-800 text-gray-400")}>
                         Email {microsoft.emailSync ? "ON" : "OFF"}
                       </span>
@@ -246,9 +246,9 @@ export default function IntegrationsPage() {
               { name: "Slack", desc: "Create tasks from messages", color: "bg-green-50 dark:bg-green-950/30", icon: "S" },
               { name: "GitHub", desc: "Link issues and PRs to tasks", color: "bg-gray-100 dark:bg-gray-800", icon: "G" },
             ].map(svc => (
-              <div key={svc.name} className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-5 opacity-60">
+              <div key={svc.name} className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-4 sm:p-5 opacity-60">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-bold text-gray-500 text-sm", svc.color)}>
+                  <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-bold text-gray-500 text-sm flex-shrink-0", svc.color)}>
                     {svc.icon}
                   </div>
                   <div>

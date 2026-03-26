@@ -29,13 +29,16 @@ const AUTH_BASE_PATH = `${APP_BASE}/api/auth`;
 
 // ─── Auth config debug logger ────────────────────────────────────────────────────
 function authLog(step: string, data: Record<string, unknown>) {
-  console.log(`[AUTH:CONFIG] ${step}`, JSON.stringify(data, null, 2));
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[AUTH:CONFIG] ${step}`, JSON.stringify(data, null, 2));
+  }
 }
 
 const config: NextAuthConfig = {
-  adapter: PrismaAdapter(prisma),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adapter: PrismaAdapter(prisma as any),
   session: { strategy: "jwt" },
-  debug: process.env.NODE_ENV !== "production" ? true : true, // always on for now
+  debug: process.env.NODE_ENV !== "production",
   // basePath MUST equal the full path prefix before the action segment.
   // @auth/core strips this prefix then splits the remainder to get the action.
   // Next.js basePath is /apps/xklwb3f46m48u5s4h2h5d4pd, auth routes live at
