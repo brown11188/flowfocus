@@ -1,0 +1,1 @@
+ALTER TABLE "EmailDigest" ADD COLUMN "readAgain" TEXT NOT NULL DEFAULT '[]';

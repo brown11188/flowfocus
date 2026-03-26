@@ -1,0 +1,500 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions          Session[]
+  tasks             Task[]
+  projects          Project[]
+  labels            Label[]
+  clickUpConnection ClickUpConnection?
+  clickUpWorkspaceConnections ClickUpWorkspaceConnection[]
+  microsoftConnection MicrosoftConnection?
+  emailScanRules EmailScanRule[]
+  emailDigests   EmailDigest[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#6366f1")
+  userId    String
+  isInbox   Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ClickUp source tracking
+  clickupSpaceId       String? // ClickUp Space ID this project was created from
+  clickupSpaceName     String? // Original ClickUp Space name
+  clickupTeamId        String? // ClickUp Workspace/Team ID
+  clickupWorkspaceConnectionId String? // Link to the workspace connection
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+  kanbanColumns  KanbanColumn[]
+  sprints        Sprint[]
+  milestones     Milestone[]
+
+  @@index([userId, clickupSpaceId])
+}
+
+model Label {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#6366f1")
+  userId    String
+  createdAt DateTime @default(now())
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks TaskLabel[]
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  notes       String?
+  dueDate     DateTime?
+  dueTime     String?
+  priority    Int       @default(4)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  sortOrder   Int       @default(0)
+  userId      String
+  projectId   String?
+  parentId    String?
+
+  // Pillar 1: Recurring Tasks
+  recurrenceRule     String?   // DAILY | WEEKLY | MONTHLY | CUSTOM
+  recurrenceInterval Int?      // every N days/weeks
+  recurrenceDays     String?   // JSON array of weekday numbers e.g. "[1,3,5]"
+  recurrenceEndDate  DateTime?
+  recurringParentId  String?
+
+  // Pillar 1: Task depth for hierarchy
+  depth Int @default(0)
+
+  // Pillar 2: Time tracking
+  estimatedHours Float?
+
+  // Pillar 3: Kanban status
+  status        String  @default("TODO") // TODO | IN_PROGRESS | REVIEW | DONE
+  kanbanColumnId String?
+  sprintId      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ClickUp source tracking (1-way import)
+  clickupTaskId   String? // Original ClickUp task ID ("9hz...")
+  clickupListId   String? // ClickUp list ID
+  clickupSpaceId  String? // ClickUp space ID
+  clickupUrl      String? // Direct link back to ClickUp task
+  clickupStatus   String? // Last known ClickUp status at import time
+  clickupAssignees String? // JSON array of assignee usernames
+  importedAt      DateTime? // When this task was imported/last synced from ClickUp
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project?    @relation(fields: [projectId], references: [id])
+  parent   Task?       @relation("TaskSubtasks", fields: [parentId], references: [id])
+  subtasks Task[]      @relation("TaskSubtasks")
+  labels   TaskLabel[]
+
+  kanbanColumn  KanbanColumn? @relation(fields: [kanbanColumnId], references: [id])
+  sprint        Sprint?       @relation(fields: [sprintId], references: [id])
+
+  // Pillar 1: Dependencies
+  blockedBy     TaskDependency[] @relation("BlockedTask")
+  blocking      TaskDependency[] @relation("BlockingTask")
+
+  // Pillar 2: Time logs
+  timeLogs      TimeLog[]
+
+  // Pillar 1: Milestone tasks
+  milestones    MilestoneTask[]
+
+  // Microsoft integration
+  linkedCalendarEvent CalendarEvent?  @relation("LinkedCalendarEvent")
+  convertedFromEmail  EmailTask?      @relation("ConvertedFromEmail")
+
+  @@index([userId, dueDate])
+  @@index([userId, completed])
+  @@index([userId, isDeleted])
+  @@index([userId, status])
+  @@index([sprintId])
+  @@index([userId, clickupTaskId])
+  @@unique([userId, clickupTaskId])
+}
+
+model TaskLabel {
+  taskId  String
+  labelId String
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+}
+
+// Pillar 1: Task Dependencies
+model TaskDependency {
+  id            String @id @default(cuid())
+  blockedTaskId String
+  blockingTaskId String
+
+  blockedTask  Task @relation("BlockedTask",  fields: [blockedTaskId],  references: [id], onDelete: Cascade)
+  blockingTask Task @relation("BlockingTask", fields: [blockingTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([blockedTaskId, blockingTaskId])
+}
+
+// Pillar 1: Milestones
+model Milestone {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  targetDate  DateTime
+  projectId   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   MilestoneTask[]
+}
+
+model MilestoneTask {
+  milestoneId String
+  taskId      String
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId],      references: [id], onDelete: Cascade)
+
+  @@id([milestoneId, taskId])
+}
+
+// Pillar 2: Time Logs
+model TimeLog {
+  id              String   @id @default(cuid())
+  taskId          String
+  userId          String
+  durationMinutes Int
+  note            String?
+  loggedAt        DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId, loggedAt])
+}
+
+// Pillar 3: Kanban Columns
+model KanbanColumn {
+  id        String  @id @default(cuid())
+  name      String
+  projectId String
+  sortOrder Int     @default(0)
+  isDefault Boolean @default(false)
+  color     String  @default("#6366f1")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([projectId])
+}
+
+// ─── Microsoft Integration ────────────────────────────────────────────────────
+model MicrosoftConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  // OAuth tokens
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  tokenType    String   @default("Bearer")
+  scopes       String?  // space-separated scopes
+  // Profile info
+  microsoftId  String   // Microsoft Graph user ID
+  email        String?
+  displayName  String?
+  accountType  String   @default("personal") // personal | business
+  // Sync settings
+  syncEmailsEnabled   Boolean @default(true)
+  syncCalendarEnabled Boolean @default(true)
+  lastEmailSyncAt     DateTime?
+  lastCalendarSyncAt  DateTime?
+  lastSyncError       String?
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarEvents CalendarEvent[]
+  emailTasks    EmailTask[]
+  emailDigests  EmailDigest[]
+
+  @@index([userId])
+  @@index([microsoftId])
+}
+
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  connectionId   String
+  userId         String
+  // Microsoft Graph event data
+  microsoftId    String   @unique  // Outlook event ID
+  subject        String?
+  bodyPreview    String?
+  startDateTime  DateTime
+  endDateTime    DateTime
+  isAllDay       Boolean  @default(false)
+  location       String?
+  organizerEmail String?
+  webLink        String?  // Link to open in Outlook
+  // Sync status
+  isRecurring    Boolean  @default(false)
+  recurrencePattern String? // JSON
+  lastSyncedAt  DateTime @default(now())
+  // Link to FlowFocus task (2-way sync)
+  linkedTaskId  String?
+  syncDirection String  @default("toCalendar") // toCalendar | toTask | bidirectional
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  connection MicrosoftConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  linkedTask Task?               @relation(fields: [linkedTaskId], references: [id], "LinkedCalendarEvent")
+
+  @@unique([linkedTaskId])
+  @@index([connectionId])
+  @@index([userId, startDateTime])
+}
+
+model EmailTask {
+  id           String   @id @default(cuid())
+  connectionId String
+  userId       String
+  // Microsoft Graph email data
+  microsoftId  String   @unique  // Outlook message ID
+  subject      String?
+  fromEmail    String?
+  fromName     String?
+  receivedAt   DateTime
+  preview      String?  // First few lines
+  webLink      String?  // Link to open in Outlook
+  // AI processing
+  aiSummary    String?  // AI-generated summary
+  suggestedPriority Int?
+  suggestedDueDate  DateTime?
+  // Conversion status
+  status       String   @default("pending") // pending | converted | dismissed
+  convertedTaskId String?
+  convertedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  connection MicrosoftConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  convertedTask Task?           @relation(fields: [convertedTaskId], references: [id], "ConvertedFromEmail")
+
+  @@unique([convertedTaskId])
+  @@index([connectionId])
+  @@index([userId, status])
+}
+
+// ─── Email Intelligence ───────────────────────────────────────────────────────
+
+// Rules for detecting client emails (domain-based, email-based, keyword-based)
+model EmailScanRule {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String   // Human-readable label e.g. "Company XYZ"
+  type      String   @default("domain") // domain | email | keyword | sender_name
+  value     String   // The pattern e.g. "acme.com" or "john@acme.com"
+  label     String?  // Optional tag e.g. "VIP Client"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Daily AI-scanned email digest stored per user
+model EmailDigest {
+  id               String   @id @default(cuid())
+  userId           String
+  connectionId     String
+  scanDate         String   // YYYY-MM-DD in local TZ (Asia/Bangkok)
+  totalScanned     Int      @default(0)
+  clientEmailCount Int      @default(0)
+  noReplyFiltered  Int      @default(0)
+  // True counts (never capped) - source of truth for widget numbers
+  missedReplyCount Int      @default(0)
+  needsReplyCount  Int      @default(0)
+  followUpCount    Int      @default(0)
+  readAgainCount   Int      @default(0)
+  // Preview JSON arrays - top 20 items for UI rendering only
+  missedReplies    String   @default("[]")
+  needsReply       String   @default("[]")
+  followUp         String   @default("[]")
+  readAgain        String   @default("[]")
+  aiSummary        String?
+  status           String   @default("pending") // pending | running | done | error
+  errorMessage     String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime? @updatedAt
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection MicrosoftConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, scanDate])
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SyncLog {
+  id           String   @id @default(cuid())
+  userId       String
+  connectionId String?
+  syncType     String   // email | calendar | task
+  direction    String   // pull | push
+  status       String   // success | error | partial
+  recordsProcessed Int  @default(0)
+  recordsCreated   Int  @default(0)
+  recordsUpdated   Int  @default(0)
+  recordsSkipped   Int  @default(0)
+  errorMessage     String?
+  startedAt    DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([userId, syncType, startedAt])
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── ClickUp Integration ────────────────────────────────────────────────────
+model ClickUpConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String   // Shared token for all workspaces
+  tokenType    String   @default("Bearer")
+  scopes       String?  // space-separated scopes
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaces   ClickUpWorkspaceConnection[]
+  reports      ClickUpReport[]
+
+  @@index([userId])
+}
+
+// Multiple workspace connections per user
+model ClickUpWorkspaceConnection {
+  id           String   @id @default(cuid())
+  connectionId String
+  userId       String
+  teamId       String   // ClickUp Workspace/Team ID
+  teamName     String
+  isActive     Boolean  @default(true)   // User can deactivate a workspace
+  syncEnabled  Boolean  @default(true)   // Auto-sync enabled for this workspace
+  lastSyncedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  connection   ClickUpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reports      ClickUpReport[]
+
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([connectionId])
+}
+
+model ClickUpReport {
+  id           String   @id @default(cuid())
+  connectionId String
+  workspaceId  String
+  workspaceName String
+  workspaceConnectionId String? // Link to specific workspace connection
+  rawData      String   // JSON snapshot of fetched tasks
+  analysis     String   // AI-generated analysis text
+  taskCount    Int      @default(0)
+  overdueCount Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  connection        ClickUpConnection         @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  workspaceConnection ClickUpWorkspaceConnection? @relation(fields: [workspaceConnectionId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([workspaceConnectionId])
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Pillar 3: Sprints
+model Sprint {
+  id        String    @id @default(cuid())
+  name      String
+  goal      String?
+  startDate DateTime
+  endDate   DateTime
+  isActive     Boolean   @default(false)
+  isCompleted  Boolean   @default(false)
+  projectId String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([projectId])
+}

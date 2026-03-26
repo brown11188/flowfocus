@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connecting ClickUp…</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      display:flex;align-items:center;justify-content:center;
+      min-height:100vh;
+      background:#0f0f0f;
+      color:#fff;
+    }
+    .card{
+      text-align:center;
+      padding:2rem;
+      max-width:380px;
+    }
+    .spinner{
+      width:44px;height:44px;
+      border:3px solid rgba(123,104,238,.2);
+      border-top-color:#7b68ee;
+      border-radius:50%;
+      animation:spin .8s linear infinite;
+      margin:0 auto 1.25rem;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    h2{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#fff}
+    p{font-size:.875rem;color:#888;margin-bottom:1rem}
+    .err{color:#f87171;font-size:.8rem;margin-top:1rem}
+    a{color:#7b68ee;text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner" id="spinner"></div>
+  <h2>Connecting to ClickUp…</h2>
+  <p>Redirecting you back to FlowFocus.</p>
+  <div class="err" id="err" style="display:none"></div>
+</div>
+
+<script>
+(function () {
+  /* ---------------------------------------------------------------
+   * ClickUp OAuth Relay
+   *
+   * ClickUp only accepts a plain domain as redirect_uri
+   * (e.g. https://buildwith.agentcrew.dev). This page lives at
+   *   https://buildwith.agentcrew.dev/clickup-relay.html
+   * and is set as the redirect URI in the ClickUp OAuth app.
+   *
+   * After ClickUp redirects here with ?code=...&state=..., we
+   * decode the destination path from `state` and forward everything
+   * to the real FlowFocus callback route.
+   *
+   * state format:  <userId:random>|<callbackPath>
+   *   callbackPath example: /apps/xklwb3f46m48u5s4h2h5d4pd/api/clickup/callback
+   * --------------------------------------------------------------- */
+  var params = new URLSearchParams(window.location.search);
+  var code  = params.get('code');
+  var state = params.get('state');
+  var error = params.get('error');
+
+  function showError(msg) {
+    document.getElementById('spinner').style.display = 'none';
+    var el = document.getElementById('err');
+    el.style.display = 'block';
+    el.innerHTML = msg + ' <a href="/apps/xklwb3f46m48u5s4h2h5d4pd/settings?tab=integrations">Go back</a>';
+  }
+
+  if (error) {
+    showError('ClickUp returned an error: ' + error);
+    return;
+  }
+
+  if (!code || !state) {
+    showError('Missing OAuth parameters.');
+    return;
+  }
+
+  // Decode callback path from state (last segment after "|")
+  var parts   = state.split('|');
+  var rawPath = parts.length >= 2 ? parts[parts.length - 1] : null;
+
+  if (!rawPath || !rawPath.startsWith('/apps/')) {
+    showError('Invalid state parameter.');
+    return;
+  }
+
+  // Rebuild the short state (everything except the path suffix)
+  var shortState = parts.slice(0, parts.length - 1).join('|');
+
+  // Forward to the real callback route
+  var dest = rawPath +
+    '?code='  + encodeURIComponent(code) +
+    '&state=' + encodeURIComponent(shortState);
+
+  window.location.replace(dest);
+})();
+</script>
+</body>
+</html>

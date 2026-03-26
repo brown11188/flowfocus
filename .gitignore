@@ -1,0 +1,93 @@
+# ===========================
+# Dependencies
+# ===========================
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ===========================
+# Next.js Build Output
+# ===========================
+.next/
+out/
+build/
+dist/
+
+# ===========================
+# Environment Variables
+# ===========================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# ===========================
+# Database
+# ===========================
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/
+
+# ===========================
+# Prisma Generated Client
+# ===========================
+src/generated/
+
+# ===========================
+# Logs
+# ===========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ===========================
+# IDE & Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===========================
+# TypeScript
+# ===========================
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# ===========================
+# Testing
+# ===========================
+coverage/
+.nyc_output/
+jest.config.local.*
+
+# ===========================
+# Misc
+# ===========================
+.vercel
+.turbo
+*.pem
+.cache/
+*.tar.gz
+*.zip
