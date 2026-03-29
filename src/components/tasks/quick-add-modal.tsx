@@ -1,28 +1,61 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTaskStore } from "@/store/task-store";
-import { X, Flag } from "lucide-react";
+import { X, Flag, Calendar, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn, PRIORITY_CONFIG } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
+import { parseNaturalLanguage } from "@/hooks/use-natural-language-parse";
+
+const PRIORITY_PILL_COLORS: Record<number, string> = {
+  1: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  2: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+  3: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  4: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+};
 
 export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => void; defaultProjectId?: string }) {
   const { projects, addTask } = useTaskStore();
+  const [rawInput, setRawInput] = useState("");
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState(new Date().toISOString().split("T")[0]);
   const [priority, setPriority] = useState<1|2|3|4>(4);
   const [projectId, setProjectId] = useState(defaultProjectId ?? projects.find(p => p.isInbox)?.id ?? "");
+  const [recurrence, setRecurrence] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showNLPills, setShowNLPills] = useState(false);
+
+  // FEAT-12: Natural language parsing
+  useEffect(() => {
+    if (!rawInput.trim()) {
+      setShowNLPills(false);
+      return;
+    }
+    const parsed = parseNaturalLanguage(rawInput);
+    if (parsed.dueDate || parsed.priority || parsed.recurrence) {
+      setShowNLPills(true);
+      setTitle(parsed.title);
+      if (parsed.dueDate) setDueDate(parsed.dueDate.split("T")[0]);
+      if (parsed.priority) setPriority(parsed.priority as 1|2|3|4);
+      if (parsed.recurrence) setRecurrence(parsed.recurrence);
+    } else {
+      setShowNLPills(false);
+      setTitle(rawInput);
+    }
+  }, [rawInput]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    const taskTitle = title.trim() || rawInput.trim();
+    if (!taskTitle) return;
     setIsLoading(true);
     try {
+      const body: Record<string, unknown> = { title: taskTitle, dueDate: dueDate ? new Date(dueDate).toISOString() : null, priority, projectId };
+      if (recurrence) body.recurrenceRule = recurrence;
       const res = await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, dueDate: dueDate ? new Date(dueDate).toISOString() : null, priority, projectId }),
+        body: JSON.stringify(body),
       });
       const task = await res.json();
       addTask(task);
@@ -43,11 +76,41 @@ export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => vo
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            autoFocus value={title} onChange={e => setTitle(e.target.value)}
-            placeholder="What needs to be done?"
-            className="w-full px-0 py-1 text-base border-b-2 border-gray-200 dark:border-gray-700 focus:border-violet-500 dark:border-gray-700 bg-transparent outline-none dark:text-white placeholder-gray-400 transition-colors"
-          />
+          <div>
+            <input
+              autoFocus value={rawInput} onChange={e => setRawInput(e.target.value)}
+              placeholder='Try: "Send report to Sarah tomorrow P1" or type normally'
+              className="w-full px-0 py-1 text-base border-b-2 border-gray-200 dark:border-gray-700 focus:border-violet-500 bg-transparent outline-none dark:text-white placeholder-gray-400 transition-colors"
+            />
+            {/* FEAT-12: NL parsed pills */}
+            {showNLPills && (
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <Sparkles className="w-3 h-3 text-violet-400" />
+                {dueDate && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                    <Calendar className="w-3 h-3" />{new Date(dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </span>
+                )}
+                {priority && priority < 4 && (
+                  <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", PRIORITY_PILL_COLORS[priority])}>
+                    <Flag className="w-3 h-3" />P{priority}
+                  </span>
+                )}
+                {recurrence && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                    <RefreshCw className="w-3 h-3" />{recurrence}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setShowNLPills(false); setTitle(rawInput); setRecurrence(null); setPriority(4); }}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 underline"
+                >
+                  edit
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             <input
               type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
@@ -66,9 +129,18 @@ export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => vo
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
+          {recurrence && (
+            <div className="flex items-center gap-2 text-xs text-violet-600 dark:text-violet-400">
+              <RefreshCw className="w-3 h-3" />
+              Recurring: {recurrence}
+              <button type="button" onClick={() => setRecurrence(null)} className="text-gray-400 hover:text-red-500">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">Cancel</button>
-            <button type="submit" disabled={isLoading || !title.trim()} className="px-4 py-2 text-sm bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl transition-colors font-medium">
+            <button type="submit" disabled={isLoading || (!title.trim() && !rawInput.trim())} className="px-4 py-2 text-sm bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl transition-colors font-medium">
               {isLoading ? "Adding..." : "Add Task"}
             </button>
           </div>

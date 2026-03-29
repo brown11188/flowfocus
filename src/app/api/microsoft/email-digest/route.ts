@@ -31,12 +31,20 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  // Actioned email IDs (for client-side filtering)
+  const actionedRecords = await (prisma as any).actionedEmail.findMany({
+    where: { userId: session.user.id },
+    select: { microsoftEmailId: true },
+  });
+  const actionedIds = (actionedRecords as { microsoftEmailId: string }[]).map(r => r.microsoftEmailId);
+
   if (!latest) {
     return NextResponse.json({
       connected: true,
       connection,
       digest: null,
       history: [],
+      actionedIds,
     });
   }
 
@@ -82,6 +90,7 @@ export async function GET(req: NextRequest) {
     connection,
     digest,
     history,
+    actionedIds,
   });
 }
 

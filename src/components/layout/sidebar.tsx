@@ -6,13 +6,15 @@ import { useTaskStore } from "@/store/task-store";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { useFocusTimer } from "@/components/features/focus-timer-context";
 import {
   LayoutDashboard, CalendarDays, Calendar, Settings, LogOut, Zap,
   Moon, Sun, Monitor, Plus, ChevronDown, ChevronRight, Hash, FolderOpen,
-  LayoutGrid, Sparkles, Link2, Menu, X,
+  LayoutGrid, Sparkles, Link2, Menu, X, BriefcaseBusiness, BarChart3, Timer,
 } from "lucide-react";
 import { AddProjectModal } from "@/components/tasks/add-project-modal";
 import { QuickAddModal } from "@/components/tasks/quick-add-modal";
+import { usePMMode } from "@/hooks/use-pm-mode";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -45,12 +47,15 @@ export function Sidebar({ user }: SidebarProps) {
   const router = useRouter();
   const { projects, tasks } = useTaskStore();
   const { theme, setTheme } = useTheme();
+  const { state: focusTimerState } = useFocusTimer();
   const [showProjects, setShowProjects] = useState(true);
   const [showPlanning, setShowPlanning] = useState(true);
+  const [showTools, setShowTools] = useState(true);
   const [showAddProject, setShowAddProject] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | undefined>(undefined);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { pmMode, togglePMMode } = usePMMode();
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -78,14 +83,32 @@ export function Sidebar({ user }: SidebarProps) {
     return proj?._count?.tasks ?? 0;
   };
 
+  // Track today ritual status
+  const [todayNeedsAttention, setTodayNeedsAttention] = useState(false);
+  useEffect(() => {
+    const hour = new Date().getHours();
+    // Morning planning not done (before noon) or EOD pending (after 4pm)
+    const morningSkipped = localStorage.getItem("flowfocus_morning_skipped");
+    const morningDone = localStorage.getItem("flowfocus_morning_done");
+    const eodDone = localStorage.getItem("flowfocus_eod_done");
+    const todayStr = new Date().toISOString().split("T")[0];
+    const morningDoneToday = morningDone === todayStr || morningSkipped === todayStr;
+    const eodDoneToday = eodDone === todayStr;
+    if ((hour < 12 && !morningDoneToday) || (hour >= 16 && !eodDoneToday)) {
+      setTodayNeedsAttention(true);
+    }
+  }, [pathname]);
+
   const myWorkItems = [
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/today", icon: CalendarDays, label: "Today" },
     { href: "/upcoming", icon: Calendar, label: "Upcoming" },
+    { href: "/weekly", icon: BarChart3, label: "Weekly Review" },
   ];
 
   const planningItems = [
     { href: "/kanban", icon: LayoutGrid, label: "Kanban Board" },
+    { href: "/pm", icon: BriefcaseBusiness, label: "PM Workspace" },
   ];
 
   const handleProjectQuickAdd = (e: React.MouseEvent, projectId: string) => {
@@ -154,6 +177,9 @@ export function Sidebar({ user }: SidebarProps) {
           >
             <Icon className="w-4 h-4 flex-shrink-0" />
             {label}
+            {label === "Today" && todayNeedsAttention && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 ml-auto flex-shrink-0" title="Morning planning or EOD review pending" />
+            )}
           </Link>
         ))}
 
@@ -184,6 +210,43 @@ export function Sidebar({ user }: SidebarProps) {
                   {label}
                 </Link>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── TOOLS section ── */}
+        <div className="pt-3">
+          <button
+            onClick={() => setShowTools(!showTools)}
+            className="w-full flex items-center justify-between px-3 py-1.5 group"
+          >
+            <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Tools</span>
+            {showTools
+              ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              : <ChevronRight className="w-3.5 h-3.5 text-gray-400" />}
+          </button>
+          {showTools && (
+            <div className="space-y-0.5 mt-0.5">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("focus-timer:open-setup"))}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Timer className="w-3.5 h-3.5 flex-shrink-0" />
+                Focus Timer
+                {(focusTimerState === "active" || focusTimerState === "paused") && (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-semibold text-green-600 dark:text-green-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                    Active
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("friday:open"))}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                Friday AI
+              </button>
             </div>
           )}
         </div>
@@ -228,6 +291,12 @@ export function Sidebar({ user }: SidebarProps) {
                         ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: project.color }} />
                         : <Hash className="w-3.5 h-3.5 flex-shrink-0" style={{ color: project.color }} />
                       }
+                      {!project.isInbox && project.healthStatus && (
+                        <span className={cn(
+                          "w-2 h-2 rounded-full flex-shrink-0",
+                          project.healthStatus === "green" ? "bg-green-500" : project.healthStatus === "yellow" ? "bg-amber-500" : "bg-red-500"
+                        )} />
+                      )}
                       <span className="truncate flex-1">{project.name}</span>
                       {!project.isInbox && (
                         <button
@@ -257,7 +326,28 @@ export function Sidebar({ user }: SidebarProps) {
 
       {/* Bottom bar */}
       <div className="border-t border-gray-200 dark:border-gray-800">
-        <div className="px-3 pt-3 pb-1 space-y-0.5">
+        {/* PM Mode Toggle */}
+        <div className="px-3 pt-3 pb-1">
+          <button
+            onClick={togglePMMode}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <BriefcaseBusiness className="w-3.5 h-3.5" />
+              PM Mode
+            </span>
+            <div className={cn(
+              "w-8 h-4.5 rounded-full transition-colors flex items-center px-0.5",
+              pmMode ? "bg-violet-500" : "bg-gray-300 dark:bg-gray-600"
+            )}>
+              <div className={cn(
+                "w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform",
+                pmMode ? "translate-x-3.5" : "translate-x-0"
+              )} />
+            </div>
+          </button>
+        </div>
+        <div className="px-3 pt-1 pb-1 space-y-0.5">
           <p className="px-3 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5">Integrations</p>
           <Link
             href="/integrations"

@@ -58,7 +58,11 @@ export async function middleware(req: NextRequest) {
 
   const isLoggedIn = !!token;
   const pathname = req.nextUrl.pathname;
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
+  const isAuthPage =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password");
 
   if (isAuthPage && isLoggedIn) {
     return redirectTo(req, "/dashboard");

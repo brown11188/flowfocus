@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { Task } from "@/types";
 import { cn, formatDate, isOverdue, PRIORITY_CONFIG } from "@/lib/utils";
-import { Flag, ChevronRight, GripVertical, RefreshCw, Lock, Clock } from "lucide-react";
+import { Flag, ChevronRight, GripVertical, RefreshCw, Lock, Clock, Link2 } from "lucide-react";
 import { ClickUpBadge } from "@/components/clickup/clickup-badge";
 import { TaskDetailPanel } from "./task-detail-panel";
+import { TaskQuickActions } from "./task-quick-actions";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useTimezoneCtx } from "@/components/layout/timezone-provider";
@@ -20,6 +21,7 @@ interface TaskItemProps {
 
 export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false, compact = false }: TaskItemProps) {
   const [showDetail, setShowDetail] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const { timezone } = useTimezoneCtx();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -31,11 +33,14 @@ export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false
   const overdueDate = task.dueDate && !task.completed && isOverdue(task.dueDate, timezone);
   const isBlocked = task.blockedBy && task.blockedBy.length > 0 && task.blockedBy.some(d => !d.blockingTask?.completed);
   const isRecurring = !!task.recurrenceRule;
+  const hasDependencies = (task.blockedBy && task.blockedBy.length > 0) || (task.blocking && task.blocking.length > 0);
 
   return (
     <>
       <div
         ref={setNodeRef} style={style}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className={cn(
           "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors",
           task.completed && "opacity-50",
@@ -92,7 +97,12 @@ export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false
               )}
               {isBlocked && (
                 <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                  <Lock className="w-3 h-3" /> Blocked
+                  <Lock className="w-3 h-3" /> Blocked{task.blockedBy?.[0]?.blockingTask?.title ? ` by: ${task.blockedBy[0].blockingTask.title.slice(0, 25)}` : ""}
+                </span>
+              )}
+              {hasDependencies && !isBlocked && (
+                <span className="text-xs text-gray-400 flex items-center gap-0.5">
+                  <Link2 className="w-3 h-3" />
                 </span>
               )}
               {isRecurring && (
@@ -111,11 +121,24 @@ export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false
             </div>
           )}
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Flag className={cn("w-3.5 h-3.5 flex-shrink-0", priority.color)} />
-          <button onClick={() => setShowDetail(true)} className="text-gray-400 hover:text-gray-600">
-            <ChevronRight className="w-4 h-4" />
-          </button>
+        <div className="flex items-center gap-1">
+          {/* UX-03: Quick actions on hover */}
+          {!task.completed && (
+            <TaskQuickActions
+              taskId={task.id}
+              currentPriority={task.priority}
+              currentDueDate={task.dueDate}
+              currentProjectId={task.projectId}
+              onEdit={(id, data) => onEdit(id, data as Partial<Task>)}
+              visible={hovered}
+            />
+          )}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Flag className={cn("w-3.5 h-3.5 flex-shrink-0", priority.color)} />
+            <button onClick={() => setShowDetail(true)} className="text-gray-400 hover:text-gray-600">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
       {showDetail && (

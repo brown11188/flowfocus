@@ -218,11 +218,26 @@ function BriefingBar({
           {generatedTime && (
             <span className="text-[10px] text-gray-400 font-normal">{generatedTime}</span>
           )}
-          {briefing?.metadata?.isFromCache && (
-            <span className="text-[10px] bg-violet-100 dark:bg-violet-900/50 text-violet-500 px-1.5 py-0.5 rounded-full">
-              cached
-            </span>
-          )}
+          {briefing?.metadata?.isFromCache && (() => {
+            const cacheAge = briefing?.generatedAt ? (Date.now() - new Date(briefing.generatedAt).getTime()) / 60000 : 0;
+            const isStale = cacheAge > 30;
+            const isVeryStale = cacheAge > 120;
+            return (
+              <span
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded-full",
+                  isVeryStale
+                    ? "bg-red-100 dark:bg-red-900/50 text-red-500"
+                    : isStale
+                      ? "bg-amber-100 dark:bg-amber-900/50 text-amber-600"
+                      : "bg-violet-100 dark:bg-violet-900/50 text-violet-500"
+                )}
+                title={isVeryStale ? "Data may be very outdated — click refresh" : isStale ? "Data may be outdated — click refresh to update" : "Showing cached data"}
+              >
+                {isVeryStale ? "stale" : isStale ? "outdated" : "cached"}
+              </span>
+            );
+          })()}
         </div>
         {summaryLine ? (
           <p className="text-[12px] text-gray-500 dark:text-gray-400 truncate leading-snug">

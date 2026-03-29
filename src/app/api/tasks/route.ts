@@ -17,6 +17,7 @@ function serializeTask(t: Record<string, unknown>) {
     dueDate: t.dueDate instanceof Date ? t.dueDate.toISOString() : (t.dueDate ?? null),
     completedAt: t.completedAt instanceof Date ? (t.completedAt as Date).toISOString() : (t.completedAt ?? null),
     recurrenceEndDate: t.recurrenceEndDate instanceof Date ? (t.recurrenceEndDate as Date).toISOString() : (t.recurrenceEndDate ?? null),
+    blockedAt: t.blockedAt instanceof Date ? (t.blockedAt as Date).toISOString() : (t.blockedAt ?? null),
     importedAt: t.importedAt instanceof Date ? (t.importedAt as Date).toISOString() : (t.importedAt ?? null),
     createdAt: t.createdAt instanceof Date ? (t.createdAt as Date).toISOString() : t.createdAt,
     updatedAt: t.updatedAt instanceof Date ? (t.updatedAt as Date).toISOString() : t.updatedAt,
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
   const {
     title, notes, dueDate, dueTime, priority = 4, projectId, parentId, depth,
     recurrenceRule, recurrenceInterval, recurrenceDays, recurrenceEndDate,
-    estimatedHours, status, sprintId,
+    estimatedHours, status, sprintId, assigneeName, waitingOn, approvalStatus, blockedAt,
   } = body;
 
   if (!title?.trim()) return NextResponse.json({ error: "Title required" }, { status: 400 });
@@ -78,6 +79,10 @@ export async function POST(req: NextRequest) {
       estimatedHours: estimatedHours ? Number(estimatedHours) : null,
       status: status ?? "TODO",
       sprintId,
+      assigneeName: assigneeName ?? null,
+      waitingOn: waitingOn ?? null,
+      approvalStatus: approvalStatus ?? null,
+      blockedAt: blockedAt ? new Date(blockedAt) : null,
     },
     include: TASK_INCLUDE,
   });

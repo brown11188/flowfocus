@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 import { Link2, ExternalLink, CheckCircle2, XCircle, Loader2, Zap, Mail, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ interface MicrosoftStatus {
   lastCalendarSync?: string | null;
 }
 
-function timeAgo(dateStr?: string | null): string {
+function timeAgo(dateStr?: string | null, tz?: string): string {
   if (!dateStr) return "Never";
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -30,7 +31,16 @@ function timeAgo(dateStr?: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function formatSyncTime(dateStr: string, tz: string): string {
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+    timeZone: tz,
+  });
+}
+
 export default function IntegrationsPage() {
+  const { timezone } = useTimezoneCtx();
   const [clickup, setClickup] = useState<ClickUpStatus | null>(null);
   const [microsoft, setMicrosoft] = useState<MicrosoftStatus | null>(null);
   const [loading, setLoading] = useState(true);

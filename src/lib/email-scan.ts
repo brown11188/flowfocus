@@ -19,14 +19,14 @@ export interface EmailDigestItem {
   daysAgo?: number;
 }
 
-const EMAIL_SCAN_TIMEZONE = "Asia/Bangkok";
+const EMAIL_SCAN_DEFAULT_TIMEZONE = "UTC";
 const EMAIL_SCAN_LOOKBACK_DAYS = 7;
 const EMAIL_SCAN_PAGE_SIZE = 100;
 const EMAIL_SCAN_MAX_PAGES = 15;
 
-function getLocalDateKey(date: Date = new Date()): string {
+function getLocalDateKey(date: Date = new Date(), tz: string = EMAIL_SCAN_DEFAULT_TIMEZONE): string {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: EMAIL_SCAN_TIMEZONE,
+    timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -367,13 +367,15 @@ export function buildFallbackSummary(
 }
 
 // ─── Main Scan Logic ──────────────────────────────────────────────────────────
-export async function runEmailScan(userId: string): Promise<void> {
+export async function runEmailScan(userId: string, userTimezone?: string): Promise<void> {
+  const tz = userTimezone ?? EMAIL_SCAN_DEFAULT_TIMEZONE;
+  
   const connection = await prisma.microsoftConnection.findUnique({
     where: { userId },
   });
   if (!connection) throw new Error("Microsoft not connected");
 
-  const today = getLocalDateKey();
+  const today = getLocalDateKey(new Date(), tz);
 
   let digest = await prisma.emailDigest.findFirst({
     where: { userId, scanDate: today },
@@ -401,6 +403,15 @@ export async function runEmailScan(userId: string): Promise<void> {
     const rules = await prisma.emailScanRule.findMany({
       where: { userId, isActive: true },
     });
+
+    // Load actioned email IDs — these are excluded from scan results
+    const actionedRecords = await (prisma as any).actionedEmail.findMany({
+      where: { userId },
+      select: { microsoftEmailId: true },
+    });
+    const actionedIds = new Set<string>(
+      (actionedRecords as { microsoftEmailId: string }[]).map(r => r.microsoftEmailId)
+    );
 
     const lookbackStart = getLookbackStartDate();
     const rawEmails = await fetchRecentEmails(userId, {
@@ -449,8 +460,12 @@ export async function runEmailScan(userId: string): Promise<void> {
     }));
     const dedupedEmails = dedupByThread(withMeta);
 
+    // ── Step 2.5: remove actioned emails — user already handled these ────────
+    const nonActionedEmails = dedupedEmails.filter(e => !actionedIds.has(e.id));
+    const actionedFiltered = dedupedEmails.length - nonActionedEmails.length;
+
     // ── Step 3: apply detectClientEmail (respects user-defined rules) ─────────
-    const clientEmails = dedupedEmails.filter(e => {
+    const clientEmails = nonActionedEmails.filter(e => {
       const { isClient } = detectClientEmail(
         e.from?.email ?? null,
         e.from?.name ?? null,
@@ -538,7 +553,7 @@ export async function runEmailScan(userId: string): Promise<void> {
     console.log(
       `[EmailScan] user=${userId} raw=${rawEmails.length} noReply=${noReplyFiltered}` +
       ` automated=${automatedFiltered} deduped=${dedupedEmails.length}` +
-      ` client=${clientEmails.length}` +
+      ` actioned=${actionedFiltered} client=${clientEmails.length}` +
       ` missed=${missedReplies.length} needs=${needsReply.length}` +
       ` followUp=${followUp.length} readAgain=${readAgain.length}`
     );

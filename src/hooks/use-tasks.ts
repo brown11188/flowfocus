@@ -6,30 +6,48 @@ import { Task } from "@/types";
 import { apiFetch } from "@/lib/api";
 
 export function useTasks() {
-  const { tasks, projects, labels, isLoading, setTasks, setProjects, setLabels, setIsLoading, addTask, updateTask, removeTask } = useTaskStore();
+  const { tasks, projects, labels, isLoading, setTasks, setProjects, setLabels, setIsLoading, addTask, updateTask, removeTask, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports } = useTaskStore();
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [tasksRes, projectsRes, labelsRes] = await Promise.all([
+      const [tasksRes, projectsRes, labelsRes, risksRes, approvalsRes, scopeRes, decisionsRes, meetingNotesRes, reportsRes] = await Promise.all([
         apiFetch("/api/tasks"),
         apiFetch("/api/projects"),
         apiFetch("/api/labels"),
+        apiFetch("/api/risks").catch(() => null),
+        apiFetch("/api/approvals").catch(() => null),
+        apiFetch("/api/scope-changes").catch(() => null),
+        apiFetch("/api/decision-logs").catch(() => null),
+        apiFetch("/api/meeting-notes").catch(() => null),
+        apiFetch("/api/status-reports").catch(() => null),
       ]);
-      const [tasksData, projectsData, labelsData] = await Promise.all([
+      const [tasksData, projectsData, labelsData, risksData, approvalsData, scopeData, decisionsData, meetingNotesData, reportsData] = await Promise.all([
         tasksRes.json(),
         projectsRes.json(),
         labelsRes.json(),
+        risksRes?.json?.() ?? Promise.resolve([]),
+        approvalsRes?.json?.() ?? Promise.resolve([]),
+        scopeRes?.json?.() ?? Promise.resolve([]),
+        decisionsRes?.json?.() ?? Promise.resolve([]),
+        meetingNotesRes?.json?.() ?? Promise.resolve([]),
+        reportsRes?.json?.() ?? Promise.resolve([]),
       ]);
       setTasks(tasksData);
       setProjects(projectsData);
       setLabels(labelsData);
+      setRisks(risksData);
+      setApprovalItems(approvalsData);
+      setScopeChanges(scopeData);
+      setDecisionLogs(decisionsData);
+      setMeetingNotes(meetingNotesData);
+      setStatusReports(reportsData);
     } catch {
       toast.error("Failed to load data");
     } finally {
       setIsLoading(false);
     }
-  }, [setTasks, setProjects, setLabels, setIsLoading]);
+  }, [setTasks, setProjects, setLabels, setIsLoading, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports]);
 
   useEffect(() => {
     fetchAll();

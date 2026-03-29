@@ -8,12 +8,53 @@ export const dynamic = "force-dynamic";
 const DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai";
 const DEEPINFRA_MODEL = process.env.DEEPINFRA_MODEL ?? "meta-llama/Llama-3.3-70B-Instruct-Turbo";
 
-// Asia/Bangkok offset = UTC+7
-const TZ_OFFSET_HOURS = 7;
+// Get YYYY-MM-DD date key in user's timezone
+function getLocalDateKey(date: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
 
-function getLocalDateKey(date: Date): string {
-  const local = new Date(date.getTime() + TZ_OFFSET_HOURS * 3600 * 1000);
-  return local.toISOString().split("T")[0];
+// Get start and end of today in user's timezone (as UTC Date objects)
+function getTodayBoundsInTz(tz: string): { start: Date; end: Date } {
+  const now = new Date();
+  // Get today's date in user's timezone
+  const todayStr = getLocalDateKey(now, tz);
+  // Create start of day in user's timezone (midnight)
+  const startStr = `${todayStr}T00:00:00`;
+  // Create end of day in user's timezone (23:59:59.999)
+  const endStr = `${todayStr}T23:59:59.999`;
+  
+  // We need to interpret these as user's local time and convert to UTC
+  // This is complex because we need to handle the offset properly
+  // A simpler approach: use the formatter to get the offset
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  });
+  
+  // Get current offset in hours
+  const nowParts = formatter.formatToParts(now);
+  const nowHour = parseInt(nowParts.find(p => p.type === "hour")?.value ?? "0");
+  const nowUtcHour = now.getUTCHours();
+  const offsetHours = nowHour - nowUtcHour;
+  
+  // Approximate start/end by offset
+  const startUtc = new Date(now);
+  startUtc.setUTCHours(0 - offsetHours, 0, 0, 0);
+  const endUtc = new Date(now);
+  endUtc.setUTCHours(23 - offsetHours, 59, 59, 999);
+  
+  return { start: startUtc, end: endUtc };
 }
 
 // Cache TTL: 4 hours
@@ -63,12 +104,9 @@ async function callDeepInfra(
 }
 
 // ─── Full context builder ─────────────────────────────────────────────────────
-async function buildBriefingContext(userId: string) {
+async function buildBriefingContext(userId: string, tz: string) {
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
+  const { start: todayStart, end: todayEnd } = getTodayBoundsInTz(tz);
   const weekEnd = new Date(now);
   weekEnd.setDate(now.getDate() + 7);
 
@@ -121,12 +159,17 @@ async function buildBriefingContext(userId: string) {
     }),
     // Microsoft connection
     prisma.microsoftConnection.findUnique({ where: { userId } }),
-    // Stats for streak
+    // Stats for streak (weekdays only — weekends don't break streak)
     (async () => {
       let streak = 0;
       let checkDate = new Date(todayStart);
       checkDate.setDate(checkDate.getDate() - 1);
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 60; i++) {
+        const dayOfWeek = checkDate.getDay(); // 0=Sun, 6=Sat
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+          checkDate.setDate(checkDate.getDate() - 1);
+          continue;
+        }
         const nextDay = new Date(checkDate);
         nextDay.setDate(nextDay.getDate() + 1);
         const count = await prisma.task.count({
@@ -522,7 +565,14 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const forceRefresh = url.searchParams.get("refresh") === "1";
 
-  const todayKey = getLocalDateKey(new Date());
+  // Fetch user's timezone
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+  const tz = user?.timezone ?? "UTC";
+
+  const todayKey = getLocalDateKey(new Date(), tz);
 
   // Check cache first
   if (!forceRefresh) {
@@ -553,7 +603,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Build full context
-  const ctx = await buildBriefingContext(userId);
+  const ctx = await buildBriefingContext(userId, tz);
   const apiKey = process.env.DEEPINFRA_API_KEY;
 
   let aiParsed: Partial<DailyBriefing> | null = null;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 import { toast } from "sonner";
 import {
   Mail, Calendar, RefreshCw, Unlink,
@@ -63,6 +64,8 @@ export default function MicrosoftConnectPanel() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [syncingCalendar, setSyncingCalendar] = useState(false);
+
+  const { timezone } = useTimezoneCtx();
 
   // ─── Fetch connection status ─────────────────────────────────────────────
 
@@ -210,6 +213,7 @@ export default function MicrosoftConnectPanel() {
     return new Date(dateStr).toLocaleDateString("en-US", {
       month: "short", day: "numeric",
       hour: "2-digit", minute: "2-digit",
+      timeZone: timezone,
     });
   };
 

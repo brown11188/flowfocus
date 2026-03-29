@@ -17,6 +17,7 @@ function serializeTask(t: Record<string, unknown>) {
     dueDate: t.dueDate instanceof Date ? t.dueDate.toISOString() : (t.dueDate ?? null),
     completedAt: t.completedAt instanceof Date ? (t.completedAt as Date).toISOString() : (t.completedAt ?? null),
     recurrenceEndDate: t.recurrenceEndDate instanceof Date ? (t.recurrenceEndDate as Date).toISOString() : (t.recurrenceEndDate ?? null),
+    blockedAt: t.blockedAt instanceof Date ? (t.blockedAt as Date).toISOString() : (t.blockedAt ?? null),
     createdAt: t.createdAt instanceof Date ? (t.createdAt as Date).toISOString() : t.createdAt,
     updatedAt: t.updatedAt instanceof Date ? (t.updatedAt as Date).toISOString() : t.updatedAt,
     labels: Array.isArray(t.labels) ? (t.labels as Array<{label: unknown}>).map((l) => l.label) : [],
@@ -53,6 +54,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.recurrenceInterval !== undefined) updates.recurrenceInterval = body.recurrenceInterval;
   if (body.recurrenceDays !== undefined) updates.recurrenceDays = body.recurrenceDays;
   if (body.recurrenceEndDate !== undefined) updates.recurrenceEndDate = body.recurrenceEndDate ? new Date(body.recurrenceEndDate) : null;
+  if (body.assigneeName !== undefined) updates.assigneeName = body.assigneeName;
+  if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
+  if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
+  if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
+  if (body.assigneeName !== undefined) updates.assigneeName = body.assigneeName;
+  if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
+  if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
+  if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
 
   if (body.completed !== undefined) {
     updates.completed = body.completed;

@@ -24,12 +24,24 @@ model User {
   tasks             Task[]
   projects          Project[]
   labels            Label[]
+  risks             Risk[]
+  decisionLogs      DecisionLog[]
+  scopeChanges      ScopeChange[]
+  approvalItems     ApprovalItem[]
+  meetingNotes      MeetingNote[]
+  statusReports     StatusReport[]
   clickUpConnection ClickUpConnection?
   clickUpWorkspaceConnections ClickUpWorkspaceConnection[]
   microsoftConnection MicrosoftConnection?
   emailScanRules EmailScanRule[]
   emailDigests   EmailDigest[]
+  actionedEmails ActionedEmail[]
   dailyBriefings DailyBriefing[]
+  passwordResetTokens PasswordResetToken[]
+  dailyLogs      DailyLog[]
+  timeBlocks     TimeBlock[]
+  focusSessions  FocusSession[]
+  capturedNotes  CapturedNote[]
 }
 
 model VerificationToken {
@@ -38,6 +50,22 @@ model VerificationToken {
   expires    DateTime
 
   @@id([identifier, token])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  email     String
+  otp       String
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([email])
 }
 
 model Account {
@@ -77,6 +105,11 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  healthStatus      String   @default("green")
+  healthScore       Int      @default(100)
+  healthSummary     String?
+  lastHealthCheckAt DateTime?
+
   // ClickUp source tracking
   clickupSpaceId       String? // ClickUp Space ID this project was created from
   clickupSpaceName     String? // Original ClickUp Space name
@@ -88,6 +121,12 @@ model Project {
   kanbanColumns  KanbanColumn[]
   sprints        Sprint[]
   milestones     Milestone[]
+  risks          Risk[]
+  decisionLogs   DecisionLog[]
+  scopeChanges   ScopeChange[]
+  approvalItems  ApprovalItem[]
+  meetingNotes   MeetingNote[]
+  statusReports  StatusReport[]
 
   @@index([userId, clickupSpaceId])
 }
@@ -118,6 +157,10 @@ model Task {
   userId      String
   projectId   String?
   parentId    String?
+  assigneeName String?
+  waitingOn    String?
+  approvalStatus String?
+  blockedAt     DateTime?
 
   // Pillar 1: Recurring Tasks
   recurrenceRule     String?   // DAILY | WEEKLY | MONTHLY | CUSTOM
@@ -257,6 +300,136 @@ model KanbanColumn {
   @@index([projectId])
 }
 
+model Risk {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  projectId      String
+  userId         String
+  probability    Int      @default(3)
+  impact         Int      @default(3)
+  score          Int      @default(9)
+  status         String   @default("open")
+  owner          String?
+  mitigationPlan String?
+  dueDate        DateTime?
+  source         String   @default("manual")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([projectId])
+}
+
+model DecisionLog {
+  id                String   @id @default(cuid())
+  title             String
+  context           String?
+  optionsConsidered String?
+  decision          String
+  impact            String?
+  owner             String?
+  projectId         String
+  userId            String
+  decidedAt         DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([userId])
+}
+
+model ScopeChange {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  projectId      String
+  userId         String
+  category       String   @default("change_request")
+  impactLevel    String   @default("medium")
+  approvalStatus String   @default("pending")
+  timelineImpact String?
+  effortHours    Float?
+  requestedBy    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([userId, approvalStatus])
+}
+
+model ApprovalItem {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  userId      String
+  approver    String?
+  status      String   @default("pending")
+  dueDate     DateTime?
+  taskId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([userId, status])
+}
+
+model MeetingNote {
+  id             String   @id @default(cuid())
+  title          String
+  rawNotes       String
+  summary        String?
+  decisions      String?
+  actionItems    String?
+  meetingDate    DateTime @default(now())
+  projectId      String?
+  userId         String
+  source         String   @default("manual")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, meetingDate])
+  @@index([projectId])
+}
+
+model StatusReport {
+  id             String   @id @default(cuid())
+  title          String
+  projectId      String?
+  userId         String
+  audience       String   @default("stakeholders")
+  reportType     String   @default("weekly")
+  content        String
+  summary        String?
+  generatedBy    String   @default("ai")
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([projectId])
+}
+
 // ─── Microsoft Integration ────────────────────────────────────────────────────
 model MicrosoftConnection {
   id           String   @id @default(cuid())
@@ -354,6 +527,20 @@ model EmailTask {
 }
 
 // ─── Email Intelligence ───────────────────────────────────────────────────────
+
+// Emails marked as "actioned" by user — excluded from future scan results
+model ActionedEmail {
+  id              String   @id @default(cuid())
+  userId          String
+  microsoftEmailId String  // Microsoft Graph email ID
+  subject         String?  // Cached for display
+  actionedAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, microsoftEmailId])
+  @@index([userId])
+}
 
 // Rules for detecting client emails (domain-based, email-based, keyword-based)
 model EmailScanRule {
@@ -500,6 +687,75 @@ model ClickUpReport {
 
   @@index([connectionId])
   @@index([workspaceConnectionId])
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Daily Planning & Productivity ──────────────────────────────────────────
+model DailyLog {
+  id             String   @id @default(cuid())
+  userId         String
+  date           String   // YYYY-MM-DD
+  intention      String?
+  eodNote        String?
+  completedCount Int      @default(0)
+  deferredCount  Int      @default(0)
+  morningDone    Boolean  @default(false)
+  eodDone        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model TimeBlock {
+  id        String   @id @default(cuid())
+  userId    String
+  taskId    String?
+  title     String
+  startTime String   // HH:mm
+  endTime   String   // HH:mm
+  date      String   // YYYY-MM-DD
+  color     String   @default("violet")
+  note      String?
+  isCalendarEvent Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model FocusSession {
+  id           String   @id @default(cuid())
+  userId       String
+  taskId       String?
+  taskLabel    String
+  plannedMins  Int
+  actualMins   Int      @default(0)
+  completedAt  DateTime?
+  wasCompleted Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model CapturedNote {
+  id          String   @id @default(cuid())
+  userId      String
+  text        String
+  type        String   @default("note") // note | risk | decision | followup
+  metadata    String?  // JSON for extra fields
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

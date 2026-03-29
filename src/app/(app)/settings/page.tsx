@@ -5,14 +5,15 @@ import { useTheme } from "next-themes";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink, Globe } from "lucide-react";
+import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink, Globe, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MicrosoftConnectPanel from "@/components/microsoft/microsoft-connect-panel";
+import { AIMemoryTab } from "@/components/features/ai-memory-tab";
 import { TIMEZONE_OPTIONS, getTimezoneOffset } from "@/lib/timezone";
 import { apiFetch } from "@/lib/api";
 import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
-type Tab = "profile" | "appearance" | "timezone" | "integrations" | "danger";
+type Tab = "profile" | "appearance" | "timezone" | "integrations" | "danger" | "pm" | "ai";
 
 function SettingsPageInner() {
   const { data: session, update } = useSession();
@@ -77,6 +78,8 @@ function SettingsPageInner() {
     { id: "appearance", label: "Appearance", icon: Palette },
     { id: "timezone", label: "Timezone", icon: Globe },
     { id: "integrations", label: "Integrations", icon: Plug },
+    { id: "pm", label: "PM", icon: Globe },
+    { id: "ai", label: "AI Memory", icon: Sparkles },
     { id: "danger", label: "Danger Zone", icon: Shield },
   ];
 
@@ -265,6 +268,24 @@ function SettingsPageInner() {
           </div>
         </div>
       )}
+
+      {/* PM tab */}
+      {activeTab === "pm" && (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-violet-500" />
+            <h2 className="font-semibold text-gray-900 dark:text-white">Project Manager tools</h2>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Use the PM Workspace to manage risks, approvals, scope changes, decision logs, meeting notes, follow-ups, and AI status drafts.</p>
+          <Link href="/pm" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors">
+            Open PM Workspace
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
+
+      {/* AI Memory tab */}
+      {activeTab === "ai" && <AIMemoryTab />}
 
       {/* Danger zone tab */}
       {activeTab === "danger" && (

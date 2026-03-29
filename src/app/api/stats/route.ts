@@ -33,11 +33,18 @@ export async function GET() {
     weeklyData.push({ day: d.toLocaleDateString("en-US", { weekday: "short" }), count });
   }
 
-  // Streak: count consecutive days with at least 1 completed task
+  // Streak: count consecutive WEEKDAYS with at least 1 completed task
+  // Weekends (Sat/Sun) are skipped — they don't count toward streak but don't break it
   let streak = 0;
   let checkDate = new Date(today);
   checkDate.setDate(checkDate.getDate() - 1); // start from yesterday
   for (let i = 0; i < 365; i++) {
+    const dayOfWeek = checkDate.getDay(); // 0=Sun, 6=Sat
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      // Skip weekends — don't break streak, just move back
+      checkDate.setDate(checkDate.getDate() - 1);
+      continue;
+    }
     const nextDay = new Date(checkDate);
     nextDay.setDate(nextDay.getDate() + 1);
     const count = await prisma.task.count({
@@ -49,5 +56,21 @@ export async function GET() {
     } else break;
   }
 
-  return NextResponse.json({ completedToday, totalToday, streak, weeklyData });
+  const overdueCount = await prisma.task.count({
+    where: { userId: session.user.id, isDeleted: false, completed: false, dueDate: { lt: today } },
+  });
+
+  const blockedCount = await prisma.task.count({
+    where: {
+      userId: session.user.id,
+      isDeleted: false,
+      completed: false,
+      OR: [
+        { waitingOn: { not: null } },
+        { blockedAt: { not: null } },
+      ],
+    },
+  });
+
+  return NextResponse.json({ completedToday, totalToday, streak, weeklyData, overdueCount, blockedCount });
 }

@@ -66,6 +66,40 @@ export interface ImportResult {
   message?: string;
 }
 
+/** Read-only ClickUp task returned from /api/clickup/tasks */
+export interface ClickUpTaskView {
+  id: string;
+  name: string;
+  status: string;
+  statusColor: string;
+  priority: string;
+  priorityColor: string;
+  dueDate: string | null;
+  assignees: string[];
+  listName: string;
+  folderName: string;
+  url: string;
+  isOverdue: boolean;
+  tags: string[];
+  spaceId: string;
+  spaceName: string;
+  description: string | null;
+}
+
+export interface ClickUpTasksResponse {
+  tasks: ClickUpTaskView[];
+  stats: {
+    total: number;
+    byStatus: Record<string, number>;
+    byPriority: Record<string, number>;
+    overdue: number;
+    unassigned: number;
+    completedThisWeek: number;
+  };
+  spaces: { id: string; name: string; taskCount: number }[];
+  totalTasks: number;
+}
+
 export interface SyncReport {
   id: string;
   workspaceName: string;

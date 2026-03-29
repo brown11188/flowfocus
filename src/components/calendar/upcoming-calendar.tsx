@@ -5,6 +5,7 @@ import { cn, isOverdue, isToday } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X, Plus } from "lucide-react";
 import { TaskItem } from "@/components/tasks/task-item";
 import { InlineAddTask } from "@/components/tasks/inline-add-task";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
 interface Props {
   tasks: Task[];
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function UpcomingCalendar({ tasks, onComplete, onEdit, onDelete }: Props) {
+  const { timezone } = useTimezoneCtx();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
@@ -86,8 +88,8 @@ export function UpcomingCalendar({ tasks, onComplete, onEdit, onDelete }: Props)
             const dayTasks = tasksByDate[dateStr] || [];
             const activeTasks = dayTasks.filter(t => !t.completed);
             const isSelected = selectedDateStr === dateStr;
-            const isTodayDay = isToday(day);
-            const hasOverdue = dayTasks.some(t => !t.completed && isOverdue(t.dueDate!));
+            const isTodayDay = isToday(day, timezone);
+            const hasOverdue = dayTasks.some(t => !t.completed && isOverdue(t.dueDate!, timezone));
             return (
               <button
                 key={dateStr}
@@ -109,7 +111,7 @@ export function UpcomingCalendar({ tasks, onComplete, onEdit, onDelete }: Props)
                       key={t.id}
                       className={cn(
                         "text-xs truncate px-1 rounded",
-                        hasOverdue && isOverdue(t.dueDate!) ? "bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400" : "bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300"
+                        hasOverdue && isOverdue(t.dueDate!, timezone) ? "bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400" : "bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300"
                       )}
                     >
                       {t.title}

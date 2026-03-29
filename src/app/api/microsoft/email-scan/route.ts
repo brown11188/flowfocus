@@ -14,7 +14,14 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await runEmailScan(session.user.id);
+    // Fetch user's timezone
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { timezone: true },
+    });
+    const tz = user?.timezone ?? "UTC";
+
+    await runEmailScan(session.user.id, tz);
 
     const connection = await prisma.microsoftConnection.findUnique({
       where: { userId: session.user.id },

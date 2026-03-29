@@ -5,25 +5,46 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const { setTasks, setProjects, setLabels } = useTaskStore();
+  const { setTasks, setProjects, setLabels, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports } = useTaskStore();
 
   const load = useCallback(async () => {
     try {
-      const [tasksRes, projectsRes, labelsRes] = await Promise.all([
+      const requests = [
         apiFetch("/api/tasks"),
         apiFetch("/api/projects"),
         apiFetch("/api/labels"),
-      ]);
-      const [tasks, projects, labels] = await Promise.all([
-        tasksRes.json(), projectsRes.json(), labelsRes.json()
+        apiFetch("/api/risks").catch(() => null),
+        apiFetch("/api/approvals").catch(() => null),
+        apiFetch("/api/scope-changes").catch(() => null),
+        apiFetch("/api/decision-logs").catch(() => null),
+        apiFetch("/api/meeting-notes").catch(() => null),
+        apiFetch("/api/status-reports").catch(() => null),
+      ] as const;
+      const [tasksRes, projectsRes, labelsRes, risksRes, approvalsRes, scopeRes, decisionsRes, meetingNotesRes, reportsRes] = await Promise.all(requests);
+      const [tasks, projects, labels, risks, approvals, scopeChanges, decisions, meetingNotes, reports] = await Promise.all([
+        tasksRes.json(),
+        projectsRes.json(),
+        labelsRes.json(),
+        risksRes?.json?.() ?? Promise.resolve([]),
+        approvalsRes?.json?.() ?? Promise.resolve([]),
+        scopeRes?.json?.() ?? Promise.resolve([]),
+        decisionsRes?.json?.() ?? Promise.resolve([]),
+        meetingNotesRes?.json?.() ?? Promise.resolve([]),
+        reportsRes?.json?.() ?? Promise.resolve([]),
       ]);
       setTasks(Array.isArray(tasks) ? tasks : []);
       setProjects(Array.isArray(projects) ? projects : []);
       setLabels(Array.isArray(labels) ? labels : []);
+      setRisks(Array.isArray(risks) ? risks : []);
+      setApprovalItems(Array.isArray(approvals) ? approvals : []);
+      setScopeChanges(Array.isArray(scopeChanges) ? scopeChanges : []);
+      setDecisionLogs(Array.isArray(decisions) ? decisions : []);
+      setMeetingNotes(Array.isArray(meetingNotes) ? meetingNotes : []);
+      setStatusReports(Array.isArray(reports) ? reports : []);
     } catch {
       toast.error("Failed to load data");
     }
-  }, [setTasks, setProjects, setLabels]);
+  }, [setTasks, setProjects, setLabels, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports]);
 
   useEffect(() => {
     load();

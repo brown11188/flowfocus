@@ -5,6 +5,10 @@ export interface Task {
   dueDate?: string | null;
   dueTime?: string | null;
   priority: 1 | 2 | 3 | 4;
+  assigneeName?: string | null;
+  waitingOn?: string | null;
+  approvalStatus?: string | null;
+  blockedAt?: string | null;
   completed: boolean;
   completedAt?: string | null;
   isDeleted?: boolean;
@@ -65,6 +69,10 @@ export interface Project {
   createdAt: string;
   updatedAt?: string;
   _count?: { tasks: number };
+  healthStatus?: "green" | "yellow" | "red";
+  healthScore?: number;
+  healthSummary?: string | null;
+  lastHealthCheckAt?: string | null;
 
   // ClickUp integration
   clickupSpaceId?: string | null;
@@ -163,4 +171,98 @@ export interface Sprint {
   updatedAt: string;
   tasks?: Task[];
   _count?: { tasks: number };
+}
+
+export interface Risk {
+  id: string;
+  title: string;
+  description?: string | null;
+  projectId: string;
+  userId: string;
+  probability: number;
+  impact: number;
+  score: number;
+  status: "open" | "watching" | "mitigated" | "closed";
+  owner?: string | null;
+  mitigationPlan?: string | null;
+  dueDate?: string | null;
+  source?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionLog {
+  id: string;
+  title: string;
+  context?: string | null;
+  optionsConsidered?: string | null;
+  decision: string;
+  impact?: string | null;
+  owner?: string | null;
+  projectId: string;
+  userId: string;
+  decidedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScopeChange {
+  id: string;
+  title: string;
+  description?: string | null;
+  projectId: string;
+  userId: string;
+  category: string;
+  impactLevel: "low" | "medium" | "high";
+  approvalStatus: "pending" | "approved" | "rejected";
+  timelineImpact?: string | null;
+  effortHours?: number | null;
+  requestedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApprovalItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  projectId: string;
+  userId: string;
+  approver?: string | null;
+  status: "pending" | "approved" | "rejected";
+  dueDate?: string | null;
+  taskId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingNote {
+  id: string;
+  title: string;
+  rawNotes: string;
+  summary?: string | null;
+  decisions?: string | null;
+  actionItems?: string | null;
+  meetingDate: string;
+  projectId?: string | null;
+  userId: string;
+  source?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StatusReport {
+  id: string;
+  title: string;
+  projectId?: string | null;
+  userId: string;
+  audience: string;
+  reportType: string;
+  content: string;
+  summary?: string | null;
+  generatedBy?: string;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Task, Project, Label, KanbanColumn, Sprint, Milestone } from "@/types";
+import { Task, Project, Label, KanbanColumn, Sprint, Milestone, Risk, DecisionLog, ScopeChange, ApprovalItem, MeetingNote, StatusReport } from "@/types";
 
 interface TaskStore {
   tasks: Task[];
@@ -8,6 +8,12 @@ interface TaskStore {
   kanbanColumns: KanbanColumn[];
   sprints: Sprint[];
   milestones: Milestone[];
+  risks: Risk[];
+  decisionLogs: DecisionLog[];
+  scopeChanges: ScopeChange[];
+  approvalItems: ApprovalItem[];
+  meetingNotes: MeetingNote[];
+  statusReports: StatusReport[];
   isLoading: boolean;
 
   setTasks: (tasks: Task[]) => void;
@@ -16,6 +22,12 @@ interface TaskStore {
   setKanbanColumns: (cols: KanbanColumn[]) => void;
   setSprints: (sprints: Sprint[]) => void;
   setMilestones: (milestones: Milestone[]) => void;
+  setRisks: (items: Risk[]) => void;
+  setDecisionLogs: (items: DecisionLog[]) => void;
+  setScopeChanges: (items: ScopeChange[]) => void;
+  setApprovalItems: (items: ApprovalItem[]) => void;
+  setMeetingNotes: (items: MeetingNote[]) => void;
+  setStatusReports: (items: StatusReport[]) => void;
   setIsLoading: (v: boolean) => void;
 
   addTask: (task: Task) => void;
@@ -37,6 +49,16 @@ interface TaskStore {
   addMilestone: (milestone: Milestone) => void;
   updateMilestone: (id: string, updates: Partial<Milestone>) => void;
   removeMilestone: (id: string) => void;
+
+  addRisk: (item: Risk) => void;
+  updateRisk: (id: string, updates: Partial<Risk>) => void;
+  removeRisk: (id: string) => void;
+
+  addDecisionLog: (item: DecisionLog) => void;
+  addScopeChange: (item: ScopeChange) => void;
+  addApprovalItem: (item: ApprovalItem) => void;
+  addMeetingNote: (item: MeetingNote) => void;
+  addStatusReport: (item: StatusReport) => void;
 }
 
 export const useTaskStore = create<TaskStore>((set) => ({
@@ -46,6 +68,12 @@ export const useTaskStore = create<TaskStore>((set) => ({
   kanbanColumns: [],
   sprints: [],
   milestones: [],
+  risks: [],
+  decisionLogs: [],
+  scopeChanges: [],
+  approvalItems: [],
+  meetingNotes: [],
+  statusReports: [],
   isLoading: false,
 
   setTasks: (tasks) => set({ tasks }),
@@ -54,6 +82,12 @@ export const useTaskStore = create<TaskStore>((set) => ({
   setKanbanColumns: (kanbanColumns) => set({ kanbanColumns }),
   setSprints: (sprints) => set({ sprints }),
   setMilestones: (milestones) => set({ milestones }),
+  setRisks: (risks) => set({ risks }),
+  setDecisionLogs: (decisionLogs) => set({ decisionLogs }),
+  setScopeChanges: (scopeChanges) => set({ scopeChanges }),
+  setApprovalItems: (approvalItems) => set({ approvalItems }),
+  setMeetingNotes: (meetingNotes) => set({ meetingNotes }),
+  setStatusReports: (statusReports) => set({ statusReports }),
   setIsLoading: (isLoading) => set({ isLoading }),
 
   addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
@@ -111,4 +145,17 @@ export const useTaskStore = create<TaskStore>((set) => ({
     set((state) => ({
       milestones: state.milestones.filter((m) => m.id !== id),
     })),
+
+  addRisk: (item) => set((state) => ({ risks: [item, ...state.risks] })),
+  updateRisk: (id, updates) =>
+    set((state) => ({
+      risks: state.risks.map((risk) => (risk.id === id ? { ...risk, ...updates } : risk)),
+    })),
+  removeRisk: (id) => set((state) => ({ risks: state.risks.filter((risk) => risk.id !== id) })),
+
+  addDecisionLog: (item) => set((state) => ({ decisionLogs: [item, ...state.decisionLogs] })),
+  addScopeChange: (item) => set((state) => ({ scopeChanges: [item, ...state.scopeChanges] })),
+  addApprovalItem: (item) => set((state) => ({ approvalItems: [item, ...state.approvalItems] })),
+  addMeetingNote: (item) => set((state) => ({ meetingNotes: [item, ...state.meetingNotes] })),
+  addStatusReport: (item) => set((state) => ({ statusReports: [item, ...state.statusReports] })),
 }));

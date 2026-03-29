@@ -160,10 +160,22 @@ async function refreshMicrosoftToken(
 
 // ─── Graph API Helpers ────────────────────────────────────────────────────────
 
+/**
+ * Normalize a Graph API datetime string to proper ISO 8601 with Z suffix.
+ * Graph API returns bare datetime strings ("2026-03-27T14:00:00.0000000")
+ * which JavaScript parses as local time without the Z.
+ * When we request events with Prefer: outlook.timezone="UTC", the values
+ * ARE UTC but still lack the Z suffix.
+ */
+function normalizeUtcDt(dt: string): string {
+  if (dt.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dt)) return dt;
+  return dt.replace(/\.?0+$/, "") + "Z";
+}
+
 async function graphFetch<T>(
   accessToken: string,
   endpoint: string,
-  options: { method?: string; body?: unknown } = {}
+  options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
 ): Promise<T | null> {
   const url = endpoint.startsWith("https")
     ? endpoint
@@ -174,6 +186,7 @@ async function graphFetch<T>(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
+      ...(options.headers ?? {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -331,21 +344,31 @@ export async function fetchCalendarEvents(
   const start = startDate.toISOString();
   const end = endDate.toISOString();
 
+  // Request events in UTC so dateTime strings are always UTC-based.
+  // Without this header, Graph returns times in the mailbox's default timezone
+  // as bare datetime strings (no Z suffix), which JavaScript parses as local time.
   const data = await graphFetch<{ value: unknown[] }>(
     tokenResult.accessToken,
-    `/me/calendarView?startDateTime=${encodeURIComponent(start)}&endDateTime=${encodeURIComponent(end)}&$orderby=start/dateTime&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,webLink,recurrence`
+    `/me/calendarView?startDateTime=${encodeURIComponent(start)}&endDateTime=${encodeURIComponent(end)}&$orderby=start/dateTime&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,webLink,recurrence`,
+    { headers: { "Prefer": 'outlook.timezone="UTC"' } }
   );
 
   if (!data?.value) return [];
 
   return data.value.map((evt: unknown) => {
     const e = evt as Record<string, unknown>;
+    const startRaw = e.start as { dateTime: string; timeZone: string };
+    const endRaw = e.end as { dateTime: string; timeZone: string };
+
+    // Ensure dateTime strings are proper ISO 8601 with Z suffix so
+    // `new Date(dt)` always interprets them as UTC on the client side.
+
     return {
       id: e.id as string,
       subject: e.subject as string | null,
       bodyPreview: e.bodyPreview as string | null,
-      start: e.start as { dateTime: string; timeZone: string },
-      end: e.end as { dateTime: string; timeZone: string },
+      start: { dateTime: normalizeUtcDt(startRaw.dateTime), timeZone: "UTC" },
+      end: { dateTime: normalizeUtcDt(endRaw.dateTime), timeZone: "UTC" },
       isAllDay: e.isAllDay as boolean,
       location: e.location as { displayName: string | null } | null,
       organizer: e.organizer as { emailAddress: { address: string; name: string } } | null,
@@ -390,12 +413,16 @@ export async function createCalendarEvent(
 
   if (!data) return null;
 
+  // Normalize returned datetime strings to include Z suffix
+  const startData = data.start as { dateTime: string; timeZone: string };
+  const endData = data.end as { dateTime: string; timeZone: string };
+
   return {
     id: data.id as string,
     subject: data.subject as string | null,
     bodyPreview: data.bodyPreview as string | null,
-    start: data.start as { dateTime: string; timeZone: string },
-    end: data.end as { dateTime: string; timeZone: string },
+    start: { dateTime: normalizeUtcDt(startData.dateTime), timeZone: "UTC" },
+    end: { dateTime: normalizeUtcDt(endData.dateTime), timeZone: "UTC" },
     isAllDay: data.isAllDay as boolean,
     location: data.location as { displayName: string | null } | null,
     organizer: data.organizer as { emailAddress: { address: string; name: string } } | null,

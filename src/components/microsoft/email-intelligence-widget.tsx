@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -8,11 +8,12 @@ import {
   Mail, RefreshCw, AlertCircle, Clock, RotateCcw,
   ExternalLink, ChevronDown, ChevronUp, Sparkles,
   MailOpen, CheckCircle2, ShieldAlert,
-  Tag, Building2, Globe,
+  Tag, Building2, Globe, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
-// ─── Types ──────────────────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface EmailDigestItem {
   id: string;
@@ -62,42 +63,50 @@ const URGENCY_CONFIG = {
   low: { color: "text-gray-400", bg: "bg-gray-50 dark:bg-gray-900", border: "border-gray-100 dark:border-gray-800", dot: "bg-gray-300" },
 };
 
-// ─── Sub-Components ───────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function EmailItemCard({ item, urgency }: { item: EmailDigestItem; urgency: "high" | "medium" | "low" }) {
+/** Filter out actioned items from a list */
+function withoutActioned(items: EmailDigestItem[], actioned: Set<string>): EmailDigestItem[] {
+  return items.filter(i => !actioned.has(i.microsoftId));
+}
+
+/** Count how many actioned ids exist in a given list */
+function countActioned(items: EmailDigestItem[], actioned: Set<string>): number {
+  return items.filter(i => actioned.has(i.microsoftId)).length;
+}
+
+// ─── Sub-Components ─────────────────────────────────────────────────────────
+
+function EmailItemCard({
+  item, urgency, onDone, onCreateTask, onUndo,
+}: {
+  item: EmailDigestItem;
+  urgency: "high" | "medium" | "low";
+  onDone: (id: string, subject: string | null) => void;
+  onCreateTask: (item: EmailDigestItem) => void;
+  onUndo?: undefined;
+}) {
   const uc = URGENCY_CONFIG[urgency];
   const initials = (item.fromName ?? item.fromEmail ?? "?").slice(0, 2).toUpperCase();
+
   return (
-    <div className={cn("rounded-lg border p-2.5 text-sm", uc.bg, uc.border)}>
-      <div className="flex items-start gap-2">
-        {/* Avatar */}
+    <div className={cn("rounded-xl border p-3 text-sm transition-all", uc.bg, uc.border)}>
+      <div className="flex items-start gap-3">
         <div className={cn(
-          "w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 text-white mt-0.5",
+          "w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white mt-0.5",
           urgency === "high" ? "bg-red-500" : urgency === "medium" ? "bg-amber-500" : "bg-gray-400"
         )}>
           {initials}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-1">
-            <p className="font-medium text-gray-900 dark:text-white text-xs leading-snug truncate">
-              {item.subject ?? "(no subject)"}
-            </p>
-            {item.webLink && (
-              <a
-                href={item.webLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-shrink-0 p-0.5 text-gray-400 hover:text-blue-500 transition-colors"
-              >
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
-          </div>
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+          <p className="font-medium text-sm leading-snug text-gray-900 dark:text-white">
+            {item.subject ?? "(no subject)"}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
             {item.fromName ?? item.fromEmail ?? "Unknown"}
             {item.clientLabel && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-[9px] font-medium">
-                <Tag className="w-2 h-2" />{item.clientLabel}
+              <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-[10px] font-medium">
+                <Tag className="w-2.5 h-2.5" />{item.clientLabel}
               </span>
             )}
           </p>
@@ -118,30 +127,83 @@ function EmailItemCard({ item, urgency }: { item: EmailDigestItem; urgency: "hig
               <span className="text-[10px] font-semibold text-blue-500">Unread</span>
             )}
           </div>
+          {/* Actions */}
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDone(item.microsoftId, item.subject); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/60 active:scale-95 transition-all min-h-[36px]"
+              title="Mark as done — remove from list"
+            >
+              <Check className="w-4 h-4" /> Done
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onCreateTask(item); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800 hover:bg-violet-100 dark:hover:bg-violet-900/60 active:scale-95 transition-all min-h-[36px]"
+              title="Create task & mark as done"
+            >
+              <Sparkles className="w-4 h-4" /> +Task
+            </button>
+            {item.webLink && (
+              <a
+                href={item.webLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 active:scale-95 transition-all min-h-[36px] ml-auto"
+                title="Open in Outlook"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+/** Undo toast bar shown briefly after actioning an email */
+function showUndoToast(subject: string | null, onUndo: () => void) {
+  toast.success(
+    <div className="flex items-center gap-2 min-w-0">
+      <Check className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+      <span className="truncate text-xs">{subject ?? "Email"} removed</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onUndo();
+        }}
+        className="ml-auto flex-shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 transition-colors"
+      >
+        <RotateCcw className="w-3 h-3" /> Undo
+      </button>
+    </div>,
+    { duration: 6000, id: `undo-${Date.now()}` }
+  );
+}
+
 function CollapsibleSection({
-  label, icon: Icon, color, items, defaultOpen = false, totalCount,
+  label, icon: Icon, color, items, defaultOpen = false, totalCount, onDone, onCreateTask,
 }: {
   label: string;
   icon: React.ElementType;
   color: string;
   items: EmailDigestItem[];
   defaultOpen?: boolean;
-  totalCount: number; // true count from DB (never capped)
+  totalCount: number;
+  onDone: (id: string, subject: string | null) => void;
+  onCreateTask: (item: EmailDigestItem) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  if (totalCount === 0) return null;
-  // Items may contain both Internal and External — split them
+  if (totalCount === 0 && items.length === 0) return null;
+
   const externalItems = items.filter(i => i.clientLabel !== "Internal");
   const internalItems = items.filter(i => i.clientLabel === "Internal");
   const externalCount = externalItems.length;
   const internalCount = internalItems.length;
   const hasMore = totalCount > items.length;
+  const displayTotal = items.length;
+
+  if (displayTotal === 0 && !hasMore) return null;
 
   return (
     <div>
@@ -151,7 +213,6 @@ function CollapsibleSection({
       >
         <Icon className={cn("w-3.5 h-3.5 flex-shrink-0", color)} />
         <span className={cn("text-xs font-semibold", color)}>{label}</span>
-        {/* External badge */}
         {externalCount > 0 && (
           <span className={cn(
             "ml-1 text-[10px] font-bold px-1.5 py-0 rounded-full",
@@ -162,7 +223,6 @@ function CollapsibleSection({
             {externalCount}
           </span>
         )}
-        {/* Internal badge */}
         {internalCount > 0 && (
           <span className="text-[10px] font-bold px-1.5 py-0 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             +{internalCount} internal
@@ -170,7 +230,7 @@ function CollapsibleSection({
         )}
         {hasMore && (
           <span className="text-[9px] text-gray-400 font-normal">
-            (showing {items.length})
+            (showing {displayTotal})
           </span>
         )}
         <span className="flex-1" />
@@ -178,7 +238,6 @@ function CollapsibleSection({
       </button>
       {open && (
         <div className="mt-1.5 space-y-2 pl-1">
-          {/* External emails first */}
           {externalItems.length > 0 && (
             <div className="space-y-1.5">
               {internalItems.length > 0 && (
@@ -187,17 +246,16 @@ function CollapsibleSection({
                 </div>
               )}
               {externalItems.map(item => (
-                <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} />
+                <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} onDone={onDone} onCreateTask={onCreateTask} />
               ))}
             </div>
           )}
-          {/* Internal emails in a collapsible sub-section */}
           {internalItems.length > 0 && (
-            <InternalSubSection items={internalItems} />
+            <InternalSubSection items={internalItems} onDone={onDone} onCreateTask={onCreateTask} />
           )}
           {hasMore && (
             <div className="text-[10px] text-gray-400 italic text-center py-1">
-              … and {totalCount - items.length} more. Open full inbox to see all.
+              … and more. Open full inbox to see all.
             </div>
           )}
         </div>
@@ -206,8 +264,15 @@ function CollapsibleSection({
   );
 }
 
-function InternalSubSection({ items }: { items: EmailDigestItem[] }) {
+function InternalSubSection({
+  items, onDone, onCreateTask,
+}: {
+  items: EmailDigestItem[];
+  onDone: (id: string, subject: string | null) => void;
+  onCreateTask: (item: EmailDigestItem) => void;
+}) {
   const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
       <button
@@ -227,7 +292,7 @@ function InternalSubSection({ items }: { items: EmailDigestItem[] }) {
       {open && (
         <div className="p-2 space-y-1.5 bg-slate-50/50 dark:bg-slate-900/40">
           {items.map(item => (
-            <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} />
+            <EmailItemCard key={item.id} item={item} urgency={item.urgency ?? "medium"} onDone={onDone} onCreateTask={onCreateTask} />
           ))}
         </div>
       )}
@@ -237,23 +302,22 @@ function InternalSubSection({ items }: { items: EmailDigestItem[] }) {
 
 // ─── StatCard ────────────────────────────────────────────────────────────────
 function StatCard({
-  value, total, label, bg, border, valueColor, subColor,
+  value, internalExtra, label, bg, border, valueColor, subColor,
 }: {
   value: number;
-  total: number;
+  internalExtra: number;
   label: string;
   bg: string;
   border: string;
   valueColor: string;
   subColor: string;
 }) {
-  const internalCount = total - value;
   return (
     <div className={cn("rounded-lg border p-2 text-center", bg, border)}>
-      <div className={cn("text-lg font-bold", valueColor)}>{value}</div>
+      <div className={cn("text-lg font-bold tabular-nums", valueColor)}>{value}</div>
       <div className={cn("text-[9px] font-medium leading-tight mt-0.5", subColor)}>{label}</div>
-      {internalCount > 0 && (
-        <div className="text-[8px] text-slate-400 mt-0.5">+{internalCount} internal</div>
+      {internalExtra > 0 && (
+        <div className="text-[8px] text-slate-400 mt-0.5">+{internalExtra} internal</div>
       )}
     </div>
   );
@@ -278,15 +342,18 @@ function RulesPanel() {
   );
 }
 
-// ─── Main Widget ───────────────────────────────────────────────────────────────────────────
+// ─── Main Widget ────────────────────────────────────────────────────────────
 
 export function EmailIntelligenceWidget() {
   const [digest, setDigest] = useState<EmailDigest | null>(null);
   const [connection, setConnection] = useState<EmailConnection | null>(null);
-  const [connected, setConnected] = useState<boolean | null>(null); // null = loading
+  const [connected, setConnected] = useState<boolean | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const loadDigest = async () => {
+  const [actionedIds, setActionedIds] = useState<Set<string>>(new Set());
+  const { timezone } = useTimezoneCtx();
+
+  const loadDigest = useCallback(async () => {
     try {
       const res = await apiFetch("/api/microsoft/email-digest");
       if (!res.ok) return;
@@ -295,15 +362,18 @@ export function EmailIntelligenceWidget() {
       if (data.connected) {
         setConnection(data.connection);
         setDigest(data.digest);
+        if (data.actionedIds) {
+          setActionedIds(new Set(data.actionedIds as string[]));
+        }
       }
     } catch {
       setConnected(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadDigest();
-  }, []);
+  }, [loadDigest]);
 
   const handleScan = async () => {
     setIsScanning(true);
@@ -311,6 +381,8 @@ export function EmailIntelligenceWidget() {
       const res = await apiFetch("/api/microsoft/email-scan", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
+        // Reset actioned after new scan (new data replaces old)
+        setActionedIds(new Set());
         await loadDigest();
         toast.success("Email scan complete!");
       } else {
@@ -323,6 +395,59 @@ export function EmailIntelligenceWidget() {
     }
   };
 
+  /** Mark email as actioned — removes from list + updates counts */
+  const markActioned = useCallback(async (microsoftEmailId: string, subject: string | null) => {
+    // Optimistic: add to actioned set immediately
+    setActionedIds(prev => {
+      const next = new Set(prev);
+      next.add(microsoftEmailId);
+      return next;
+    });
+
+    const undoAction = () => {
+      // Restore to list
+      setActionedIds(prev => {
+        const next = new Set(prev);
+        next.delete(microsoftEmailId);
+        return next;
+      });
+      // Undo on server
+      void apiFetch("/api/microsoft/email-actioned", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ microsoftEmailId }),
+      }).catch(() => toast.error("Failed to undo"));
+    };
+
+    try {
+      const res = await apiFetch("/api/microsoft/email-actioned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ microsoftEmailId, subject }),
+      });
+      if (!res.ok) throw new Error();
+      // Show undo toast
+      showUndoToast(subject, undoAction);
+    } catch {
+      // Revert on failure
+      setActionedIds(prev => {
+        const next = new Set(prev);
+        next.delete(microsoftEmailId);
+        return next;
+      });
+      toast.error("Failed to update email status");
+    }
+  }, []);
+
+  /** Create task from email AND auto-mark as actioned */
+  const handleCreateTask = useCallback((item: EmailDigestItem) => {
+    // Open quick capture with prefilled text
+    window.dispatchEvent(new CustomEvent("quick-capture:open", {
+      detail: { text: `Reply to: ${item.subject} (from ${item.fromName || item.fromEmail})` }
+    }));
+    // Auto-mark as actioned (don't wait for task creation — intent to act is enough)
+    void markActioned(item.microsoftId, item.subject);
+  }, [markActioned]);
 
   // ─── Loading ───
   if (connected === null) {
@@ -361,35 +486,60 @@ export function EmailIntelligenceWidget() {
     );
   }
 
-  // ─── Summary counts ───
-  const missed = digest?.missedReplies ?? [];
-  const needs = digest?.needsReply ?? [];
-  const follow = digest?.followUp ?? [];
-  const readAgain = digest?.readAgain ?? [];
+  // ─── Compute visible (non-actioned) items per category ───
+  const rawMissed    = digest?.missedReplies ?? [];
+  const rawNeeds     = digest?.needsReply ?? [];
+  const rawFollow    = digest?.followUp ?? [];
+  const rawReadAgain = digest?.readAgain ?? [];
 
-  // For the stats grid, only count External emails (Internal shown separately)
-  const missedExternal = missed.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
-  const needsExternal  = needs.filter((i: EmailDigestItem)  => i.clientLabel !== "Internal");
-  const followExternal = follow.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
-  const readAgainExternal = readAgain.filter((i: EmailDigestItem) => i.clientLabel !== "Internal");
+  // Remove actioned items from each list
+  const missed    = withoutActioned(rawMissed, actionedIds);
+  const needs     = withoutActioned(rawNeeds, actionedIds);
+  const follow    = withoutActioned(rawFollow, actionedIds);
+  const readAgain = withoutActioned(rawReadAgain, actionedIds);
 
-  // True DB counts — may include internal; we show separate breakdown below
-  const missedCount    = digest?.missedReplyCount ?? missed.length;
-  const needsCount     = digest?.needsReplyCount  ?? needs.length;
-  const followCount    = digest?.followUpCount    ?? follow.length;
-  const readAgainCount = digest?.readAgainCount   ?? readAgain.length;
+  // Count how many were actioned per category (for adjusting DB counts)
+  const missedActionedCount    = countActioned(rawMissed, actionedIds);
+  const needsActionedCount     = countActioned(rawNeeds, actionedIds);
+  const followActionedCount    = countActioned(rawFollow, actionedIds);
+  const readAgainActionedCount = countActioned(rawReadAgain, actionedIds);
 
-  // External-only counts for the badge (what user should act on)
+  // Adjusted total counts (DB count minus actioned in that category)
+  const missedCount    = Math.max(0, (digest?.missedReplyCount ?? rawMissed.length) - missedActionedCount);
+  const needsCount     = Math.max(0, (digest?.needsReplyCount ?? rawNeeds.length) - needsActionedCount);
+  const followCount    = Math.max(0, (digest?.followUpCount ?? rawFollow.length) - followActionedCount);
+  const readAgainCount = Math.max(0, (digest?.readAgainCount ?? rawReadAgain.length) - readAgainActionedCount);
+
+  // External / Internal split on VISIBLE items only
+  const missedExternal    = missed.filter(i => i.clientLabel !== "Internal");
+  const needsExternal     = needs.filter(i => i.clientLabel !== "Internal");
+  const followExternal    = follow.filter(i => i.clientLabel !== "Internal");
+  const readAgainExternal = readAgain.filter(i => i.clientLabel !== "Internal");
+
+  const missedInternal    = missed.filter(i => i.clientLabel === "Internal");
+  const needsInternal     = needs.filter(i => i.clientLabel === "Internal");
+  const followInternal    = follow.filter(i => i.clientLabel === "Internal");
+  const readAgainInternal = readAgain.filter(i => i.clientLabel === "Internal");
+
   const missedExternalCount    = missedExternal.length;
   const needsExternalCount     = needsExternal.length;
   const followExternalCount    = followExternal.length;
   const readAgainExternalCount = readAgainExternal.length;
+
+  // Internal "extra" count for the stat cards (total adjusted count minus visible external)
+  const missedInternalExtra    = Math.max(0, missedCount - missedExternalCount);
+  const needsInternalExtra     = Math.max(0, needsCount - needsExternalCount);
+  const followInternalExtra    = Math.max(0, followCount - followExternalCount);
+  const readAgainInternalExtra = Math.max(0, readAgainCount - readAgainExternalCount);
+
   const totalExternal = missedExternalCount + needsExternalCount + followExternalCount + readAgainExternalCount;
+  const totalInternal = missedInternal.length + needsInternal.length + followInternal.length + readAgainInternal.length;
   const total = missedCount + needsCount + followCount + readAgainCount;
+
   const isScanned = digest?.status === "done";
   const scanDate = digest?.scanDate;
   const todayKey = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
+    timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -402,8 +552,8 @@ export function EmailIntelligenceWidget() {
 
   const syncLabel = lastSync
     ? isToday
-      ? `Today ${lastSync.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-      : lastSync.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      ? `Today ${lastSync.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: timezone })}`
+      : lastSync.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: timezone })
     : null;
 
   return (
@@ -413,7 +563,6 @@ export function EmailIntelligenceWidget() {
         <Mail className="w-4 h-4 text-blue-500" />
         <span className="text-sm font-semibold text-blue-700 dark:text-blue-300 flex-1">Email Intelligence</span>
         <div className="flex items-center gap-1">
-          {/* Rules toggle */}
           <button
             onClick={() => setShowRules(s => !s)}
             className={cn(
@@ -424,7 +573,6 @@ export function EmailIntelligenceWidget() {
           >
             <ShieldAlert className="w-3.5 h-3.5" />
           </button>
-          {/* Scan button */}
           <button
             onClick={handleScan}
             disabled={isScanning}
@@ -443,17 +591,14 @@ export function EmailIntelligenceWidget() {
         </div>
       )}
 
-      {/* Status / Not scanned yet */}
+      {/* Not scanned yet */}
       {!isScanned && !isScanning && (
         <div className="px-4 py-4 text-center space-y-2">
           {digest?.status === "error" ? (
             <>
               <AlertCircle className="w-7 h-7 text-red-400 mx-auto" />
               <p className="text-xs text-red-500">{digest.errorMessage ?? "Scan failed"}</p>
-              <button
-                onClick={handleScan}
-                className="text-xs text-blue-500 hover:underline"
-              >Try again</button>
+              <button onClick={handleScan} className="text-xs text-blue-500 hover:underline">Try again</button>
             </>
           ) : (
             <>
@@ -473,7 +618,7 @@ export function EmailIntelligenceWidget() {
         </div>
       )}
 
-      {/* Scanning state */}
+      {/* Scanning */}
       {isScanning && (
         <div className="px-4 py-4 text-center space-y-2">
           <RefreshCw className="w-7 h-7 text-blue-400 animate-spin mx-auto" />
@@ -492,65 +637,61 @@ export function EmailIntelligenceWidget() {
             </div>
           )}
 
-          {/* Stats row — External counts (primary action items) */}
+          {/* Stats row — reflects actioned removals in real time */}
           <div className="grid grid-cols-4 gap-1.5">
-            <StatCard value={missedExternalCount} total={missedCount} label="Missed" bg="bg-red-50 dark:bg-red-950/20" border="border-red-100 dark:border-red-900" valueColor="text-red-500" subColor="text-red-400" />
-            <StatCard value={needsExternalCount} total={needsCount} label="Needs Reply" bg="bg-amber-50 dark:bg-amber-950/20" border="border-amber-100 dark:border-amber-900" valueColor="text-amber-500" subColor="text-amber-400" />
-            <StatCard value={followExternalCount} total={followCount} label="Follow Up" bg="bg-blue-50 dark:bg-blue-950/20" border="border-blue-100 dark:border-blue-900" valueColor="text-blue-500" subColor="text-blue-400" />
-            <StatCard value={readAgainExternalCount} total={readAgainCount} label="Read Again" bg="bg-violet-50 dark:bg-violet-950/20" border="border-violet-100 dark:border-violet-900" valueColor="text-violet-500" subColor="text-violet-400" />
+            <StatCard value={missedExternalCount} internalExtra={missedInternalExtra} label="Missed" bg="bg-red-50 dark:bg-red-950/20" border="border-red-100 dark:border-red-900" valueColor="text-red-500" subColor="text-red-400" />
+            <StatCard value={needsExternalCount} internalExtra={needsInternalExtra} label="Needs Reply" bg="bg-amber-50 dark:bg-amber-950/20" border="border-amber-100 dark:border-amber-900" valueColor="text-amber-500" subColor="text-amber-400" />
+            <StatCard value={followExternalCount} internalExtra={followInternalExtra} label="Follow Up" bg="bg-blue-50 dark:bg-blue-950/20" border="border-blue-100 dark:border-blue-900" valueColor="text-blue-500" subColor="text-blue-400" />
+            <StatCard value={readAgainExternalCount} internalExtra={readAgainInternalExtra} label="Read Again" bg="bg-violet-50 dark:bg-violet-950/20" border="border-violet-100 dark:border-violet-900" valueColor="text-violet-500" subColor="text-violet-400" />
           </div>
-          {/* Internal summary pill — shown only when there are internal items */}
-          {(total - totalExternal) > 0 && (
+
+          {/* Internal summary pill */}
+          {totalInternal > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
               <Building2 className="w-3 h-3 text-slate-400 flex-shrink-0" />
               <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                <span className="font-semibold">{total - totalExternal}</span> internal email{(total - totalExternal) > 1 ? "s" : ""} from <span className="font-medium">saigontechnology.com</span> — shown separately below each section
+                <span className="font-semibold">{totalInternal}</span> internal email{totalInternal > 1 ? "s" : ""} from <span className="font-medium">saigontechnology.com</span> — shown separately below each section
               </span>
             </div>
           )}
 
-          {/* All clear — only when truly nothing, including internal */}
+          {/* All clear */}
           {total === 0 && (
             <div className="text-center py-2">
               <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
               <p className="text-xs font-medium text-gray-500">Inbox all clear 🎉</p>
+              {actionedIds.size > 0 && (
+                <p className="text-[10px] text-gray-400 mt-0.5">{actionedIds.size} email{actionedIds.size > 1 ? "s" : ""} actioned this session</p>
+              )}
             </div>
           )}
 
-          {/* Collapsible sections */}
+          {/* Collapsible sections — only visible (non-actioned) items */}
           {total > 0 && (
             <div className="space-y-1">
               <CollapsibleSection
-                label="Missed Replies"
-                icon={AlertCircle}
-                color="text-red-500"
-                items={missed}
-                totalCount={missedCount}
+                label="Missed Replies" icon={AlertCircle} color="text-red-500"
+                items={missed} totalCount={missedCount}
                 defaultOpen={missedExternalCount > 0}
+                onDone={markActioned} onCreateTask={handleCreateTask}
               />
               <CollapsibleSection
-                label="Needs Reply"
-                icon={Mail}
-                color="text-amber-500"
-                items={needs}
-                totalCount={needsCount}
+                label="Needs Reply" icon={Mail} color="text-amber-500"
+                items={needs} totalCount={needsCount}
                 defaultOpen={missedExternalCount === 0 && needsExternalCount > 0}
+                onDone={markActioned} onCreateTask={handleCreateTask}
               />
               <CollapsibleSection
-                label="Follow Up"
-                icon={RotateCcw}
-                color="text-blue-500"
-                items={follow}
-                totalCount={followCount}
+                label="Follow Up" icon={RotateCcw} color="text-blue-500"
+                items={follow} totalCount={followCount}
                 defaultOpen={missedExternalCount === 0 && needsExternalCount === 0}
+                onDone={markActioned} onCreateTask={handleCreateTask}
               />
               <CollapsibleSection
-                label="Read Again"
-                icon={MailOpen}
-                color="text-violet-500"
-                items={readAgain}
-                totalCount={readAgainCount}
+                label="Read Again" icon={MailOpen} color="text-violet-500"
+                items={readAgain} totalCount={readAgainCount}
                 defaultOpen={missedExternalCount === 0 && needsExternalCount === 0 && followExternalCount === 0}
+                onDone={markActioned} onCreateTask={handleCreateTask}
               />
             </div>
           )}
@@ -560,6 +701,11 @@ export function EmailIntelligenceWidget() {
             <div className="flex items-center gap-1 text-[10px] text-gray-400">
               <Clock className="w-2.5 h-2.5" />
               {syncLabel ? `Last scan: ${syncLabel}` : "Not yet scanned"}
+              {actionedIds.size > 0 && (
+                <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-[9px] font-medium">
+                  <Check className="w-2 h-2" />{actionedIds.size} actioned
+                </span>
+              )}
             </div>
             <div className="text-[10px] text-gray-400 text-right">
               <div>
@@ -569,11 +715,11 @@ export function EmailIntelligenceWidget() {
               <div className="flex items-center justify-end gap-1">
                 <Globe className="w-2.5 h-2.5" />
                 <span>{totalExternal} external</span>
-                {(total - totalExternal) > 0 && (
+                {totalInternal > 0 && (
                   <>
                     <span className="text-gray-300">|</span>
                     <Building2 className="w-2.5 h-2.5" />
-                    <span>{total - totalExternal} internal</span>
+                    <span>{totalInternal} internal</span>
                   </>
                 )}
               </div>

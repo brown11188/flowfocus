@@ -88,3 +88,28 @@ export const PRIORITY_CONFIG = {
   3: { label: "Medium", color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-950", border: "border-blue-200 dark:border-blue-800", flag: "🔵" },
   4: { label: "Low", color: "text-gray-400", bg: "bg-gray-50 dark:bg-gray-900", border: "border-gray-200 dark:border-gray-700", flag: "⚪" },
 } as const;
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function daysBetween(date: Date | string, compareTo: Date = new Date()): number {
+  const target = new Date(date);
+  const base = new Date(compareTo);
+  target.setHours(0, 0, 0, 0);
+  base.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - base.getTime()) / 86400000);
+}
+
+export function getHealthColor(score: number): "green" | "yellow" | "red" {
+  if (score >= 75) return "green";
+  if (score >= 45) return "yellow";
+  return "red";
+}
+
+export function getHealthLabel(score: number): string {
+  const color = getHealthColor(score);
+  if (color === "green") return "Healthy";
+  if (color === "yellow") return "Needs attention";
+  return "At risk";
+}

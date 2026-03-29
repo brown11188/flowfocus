@@ -70,7 +70,14 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      await runEmailScan(conn.userId);
+      // Fetch user's timezone
+      const user = await prisma.user.findUnique({
+        where: { id: conn.userId },
+        select: { timezone: true },
+      });
+      const tz = user?.timezone ?? "UTC";
+      
+      await runEmailScan(conn.userId, tz);
       results.push({ userId: conn.userId, email: conn.email, status: "success" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";

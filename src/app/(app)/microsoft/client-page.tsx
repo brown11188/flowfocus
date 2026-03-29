@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 
 import { toast } from "sonner";
 import Link from "next/link";
@@ -68,16 +69,16 @@ function msLogo(size = 20) {
   );
 }
 
-function formatTime(dt: string) {
-  return new Date(dt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+function formatTime(dt: string, tz: string) {
+  return new Date(dt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz });
 }
 
-function formatDateShort(dt: string) {
-  return new Date(dt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+function formatDateShort(dt: string, tz: string) {
+  return new Date(dt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: tz });
 }
 
-function formatDateFull(dt: string) {
-  return new Date(dt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+function formatDateFull(dt: string, tz: string) {
+  return new Date(dt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: tz });
 }
 
 function getDuration(start: string, end: string): string {
@@ -89,37 +90,69 @@ function getDuration(start: string, end: string): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-function isToday(dt: string): boolean {
-  const d = new Date(dt);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+function formatDateTime(dt: string, tz: string): string {
+  return new Date(dt).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: tz,
+  });
 }
 
-function isTomorrow(dt: string): boolean {
-  const d = new Date(dt);
-  const now = new Date();
-  now.setDate(now.getDate() + 1);
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+function isToday(dt: string, tz: string): boolean {
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+  const dtStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(dt));
+  return dtStr === todayStr;
 }
 
-function groupEventsByDate(events: CalendarEvent[]): Map<string, CalendarEvent[]> {
+function isTomorrow(dt: string, tz: string): boolean {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(tomorrow);
+  const dtStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(dt));
+  return dtStr === tomorrowStr;
+}
+
+/**
+ * Group events by their local date in the user's timezone.
+ * Uses en-CA format (YYYY-MM-DD) as the grouping key so date comparisons
+ * are consistent regardless of the browser's local timezone.
+ */
+function groupEventsByDate(events: CalendarEvent[], tz: string): Map<string, CalendarEvent[]> {
   const map = new Map<string, CalendarEvent[]>();
   for (const ev of events) {
-    const key = new Date(ev.start.dateTime).toDateString();
+    const key = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(ev.start.dateTime));
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(ev);
   }
   return map;
 }
 
-function getDateLabel(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = Math.floor((d.getTime() - now.setHours(0,0,0,0)) / 86400000);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff === -1) return "Yesterday";
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+/**
+ * Get a human-readable label for a YYYY-MM-DD date string in the user's timezone.
+ */
+function getDateLabel(dateStr: string, tz: string): string {
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(tomorrow);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(yesterday);
+
+  if (dateStr === todayStr) return "Today";
+  if (dateStr === tomorrowStr) return "Tomorrow";
+  if (dateStr === yesterdayStr) return "Yesterday";
+
+  // Parse the YYYY-MM-DD and format in the user's timezone
+  const d = new Date(dateStr + "T12:00:00Z"); // noon UTC to avoid date-shift edge cases
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: tz });
+}
+
+function formatLastSync(isoString: string, tz: string): string {
+  return new Date(isoString).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz });
 }
 
 const EVENT_COLORS = [
@@ -185,14 +218,18 @@ function CalendarTab({
 }) {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [viewWeek, setViewWeek] = useState(0); // 0 = current week
+  const { timezone } = useTimezoneCtx();
 
-  const grouped = groupEventsByDate(events);
-  const sortedDates = Array.from(grouped.keys()).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime()
-  );
+  const grouped = groupEventsByDate(events, timezone);
+  const sortedDates = Array.from(grouped.keys()).sort();
 
-  const todayEvents = events.filter(e => isToday(e.start.dateTime));
-  const upcomingEvents = events.filter(e => !isToday(e.start.dateTime));
+  const todayEvents = events.filter(e => isToday(e.start.dateTime, timezone));
+  const upcomingEvents = events.filter(e => !isToday(e.start.dateTime, timezone));
+
+  // Format last sync time with timezone
+  const lastSyncFormatted = connection.lastCalendarSyncAt
+    ? formatLastSync(connection.lastCalendarSyncAt, timezone)
+    : null;
 
   return (
     <div className="flex h-full gap-0 relative">
@@ -205,9 +242,9 @@ function CalendarTab({
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Outlook Calendar</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {events.length} events · next 14 days
-                {connection.lastCalendarSyncAt && (
+                {lastSyncFormatted && (
                   <span className="ml-2 text-gray-400">
-                    · synced {new Date(connection.lastCalendarSyncAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    · synced {lastSyncFormatted}
                   </span>
                 )}
               </p>
@@ -241,7 +278,7 @@ function CalendarTab({
               <div className="p-4 bg-[#0078D4]/5 dark:bg-[#0078D4]/10 border border-[#0078D4]/20 rounded-2xl">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 rounded-full bg-[#0078D4] animate-pulse" />
-                  <span className="text-sm font-semibold text-[#0078D4]">Today — {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span>
+                  <span className="text-sm font-semibold text-[#0078D4]">Today — {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: timezone })}</span>
                   <span className="ml-auto text-xs text-[#0078D4]/70 font-medium">{todayEvents.length} event{todayEvents.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="space-y-2">
@@ -255,7 +292,7 @@ function CalendarTab({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{ev.subject || "(No title)"}</p>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {ev.isAllDay ? "All day" : `${formatTime(ev.start.dateTime)} – ${formatTime(ev.end.dateTime)}`}
+                          {ev.isAllDay ? "All day" : `${formatTime(ev.start.dateTime, timezone)} – ${formatTime(ev.end.dateTime, timezone)}`}
                           {ev.location?.displayName && <span className="ml-2">· {ev.location.displayName}</span>}
                         </p>
                       </div>
@@ -274,7 +311,7 @@ function CalendarTab({
             {/* All events by date */}
             {sortedDates.map((dateStr, di) => {
               const dayEvents = grouped.get(dateStr)!;
-              const label = getDateLabel(dateStr);
+              const label = getDateLabel(dateStr, timezone);
               const isToday_ = label === "Today";
               if (isToday_) return null; // already shown above
               return (
@@ -307,7 +344,7 @@ function CalendarTab({
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
                             <span className="flex items-center gap-1 text-xs text-gray-500">
                               <Clock className="w-3 h-3" />
-                              {ev.isAllDay ? "All day" : `${formatTime(ev.start.dateTime)} – ${formatTime(ev.end.dateTime)}`}
+                              {ev.isAllDay ? "All day" : `${formatTime(ev.start.dateTime, timezone)} – ${formatTime(ev.end.dateTime, timezone)}`}
                             </span>
                             {!ev.isAllDay && (
                               <span className="text-xs text-gray-400">
@@ -359,7 +396,7 @@ function CalendarTab({
                 <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full">All day</span>
               ) : (
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {formatDateFull(selectedEvent.start.dateTime)}
+                  {formatDateFull(selectedEvent.start.dateTime, timezone)}
                 </p>
               )}
             </div>
@@ -369,7 +406,7 @@ function CalendarTab({
                 <Clock className="w-4 h-4 text-[#0078D4] flex-shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {formatTime(selectedEvent.start.dateTime)} – {formatTime(selectedEvent.end.dateTime)}
+                    {formatTime(selectedEvent.start.dateTime, timezone)} – {formatTime(selectedEvent.end.dateTime, timezone)}
                   </p>
                   <p className="text-xs text-gray-500">{getDuration(selectedEvent.start.dateTime, selectedEvent.end.dateTime)} duration</p>
                 </div>
@@ -432,6 +469,7 @@ function EmailTab({
   convertingId: string | null;
 }) {
   const [selectedEmail, setSelectedEmail] = useState<EmailItem | null>(null);
+  const { timezone } = useTimezoneCtx();
 
   const unread = emails.filter(e => !e.isRead).length;
   const meetings = emails.filter(e => e.isMeetingInvite).length;
@@ -504,7 +542,7 @@ function EmailTab({
                       {email.from?.name ?? email.from?.email ?? "Unknown"}
                     </span>
                     <span className="text-xs text-gray-400 flex-shrink-0">
-                      {new Date(email.receivedDateTime).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {new Date(email.receivedDateTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: timezone })}
                     </span>
                   </div>
                   <p className={cn(
@@ -556,6 +594,7 @@ function EmailTab({
                   {new Date(selectedEmail.receivedDateTime).toLocaleDateString("en-US", {
                     weekday: "long", month: "long", day: "numeric",
                     hour: "numeric", minute: "2-digit",
+                    timeZone: timezone,
                   })}
                 </p>
               </div>

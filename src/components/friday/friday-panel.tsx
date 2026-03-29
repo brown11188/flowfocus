@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Send, X, Minimize2, Maximize2,
   RotateCcw, CheckCircle2, Calendar,
-  Loader2, RefreshCw,
+  Loader2, RefreshCw, Copy, Plus,
 } from "lucide-react";
 import { BriefingMessage } from "@/components/friday/briefing-message";
 import { apiFetch } from "@/lib/api";
@@ -131,6 +131,31 @@ function MessageBubble({ msg, onRefresh }: { msg: AssistantMessage; onRefresh?: 
           </div>
         )}
 
+        {/* Quick action buttons for assistant messages */}
+        {!isUser && msg.content && !msg.isLoading && (
+          <div className="flex items-center gap-1 ml-1">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(msg.content);
+                toast.success("Copied!");
+              }}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              title="Copy"
+            >
+              <Copy className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("quick-capture:open", { detail: { text: msg.content.slice(0, 200) } }));
+              }}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              title="Create task from this"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         {/* Task list */}
         {msg.tasks && msg.tasks.length > 0 && (
           <div className="space-y-1.5">
@@ -198,7 +223,7 @@ function getTodayKey(): string {
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
-export function FridayPanel({ onClose }: { onClose: () => void }) {
+export function FridayPanel({ onClose, initialPrompt, onConsumedInitialPrompt }: { onClose: () => void; initialPrompt?: string | null; onConsumedInitialPrompt?: () => void }) {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -262,6 +287,13 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
     }
   }, [loadBriefing]);
 
+  useEffect(() => {
+    if (!initialPrompt) return;
+    setInput(initialPrompt);
+    setTimeout(() => inputRef.current?.focus(), 100);
+    onConsumedInitialPrompt?.();
+  }, [initialPrompt, onConsumedInitialPrompt]);
+
   // Listen for external prompt injection (e.g. from DailyBriefingCard "Ask Friday" CTA)
   useEffect(() => {
     const handler = (e: Event) => {
@@ -271,8 +303,8 @@ export function FridayPanel({ onClose }: { onClose: () => void }) {
         setTimeout(() => inputRef.current?.focus(), 150);
       }
     };
-    window.addEventListener("friday:open", handler);
-    return () => window.removeEventListener("friday:open", handler);
+    window.addEventListener("friday:open-with-prompt", handler);
+    return () => window.removeEventListener("friday:open-with-prompt", handler);
   }, []);
 
   useEffect(() => {
