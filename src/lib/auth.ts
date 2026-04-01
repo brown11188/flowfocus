@@ -6,24 +6,18 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
-// The Next.js app is deployed at:
-//   https://buildwith.agentcrew.dev/apps/xklwb3f46m48u5s4h2h5d4pd/
+// This app can run either:
+// - at the root domain on Vercel: NEXT_PUBLIC_BASE_PATH=""
+// - behind a reverse-proxy subpath: NEXT_PUBLIC_BASE_PATH="/apps/<project-id>"
 //
 // NextAuth v5 (@auth/core) action parsing (web.js parseActionAndProviderId):
 //   1. Takes the request URL pathname.
 //   2. Matches it against regex: ^${config.basePath}(.+)
 //   3. Splits the captured suffix by "/" — expects exactly 1 or 2 segments.
 //
-// If config.basePath = "/apps/xklwb3f46m48u5s4h2h5d4pd" (derived from AUTH_URL),
-// the pathname /apps/xklwb3f46m48u5s4h2h5d4pd/api/auth/session captures
-// "/api/auth/session" → splits to ["api","auth","session"] (3 parts) → UnknownAction.
-//
-// The fix: set config.basePath = "/apps/xklwb3f46m48u5s4h2h5d4pd/api/auth"
-// so that the pathname /apps/.../api/auth/session captures just "/session"
-// → splits to ["session"] (1 part) → action = "session" ✓
-//
-// The route handler re-prepends basePath to the stripped pathname that
-// Next.js passes so NextAuth sees the full URL including the subpath.
+// Therefore basePath here must always be `${APP_BASE}/api/auth`.
+// The route handler re-prepends APP_BASE to the stripped pathname that
+// Next.js passes so NextAuth sees the full canonical URL.
 const APP_BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const AUTH_BASE_PATH = `${APP_BASE}/api/auth`;
 
@@ -41,9 +35,8 @@ const config: NextAuthConfig = {
   debug: process.env.NODE_ENV !== "production",
   // basePath MUST equal the full path prefix before the action segment.
   // @auth/core strips this prefix then splits the remainder to get the action.
-  // Next.js basePath is /apps/xklwb3f46m48u5s4h2h5d4pd, auth routes live at
-  // /apps/xklwb3f46m48u5s4h2h5d4pd/api/auth/<action> — so basePath here
-  // must be /apps/xklwb3f46m48u5s4h2h5d4pd/api/auth.
+  // For root-domain deploys this becomes /api/auth.
+  // For subpath deploys this becomes /apps/<project-id>/api/auth.
   basePath: AUTH_BASE_PATH,
   trustHost: true,
   pages: {

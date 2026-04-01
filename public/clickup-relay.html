@@ -64,20 +64,45 @@
   var state = params.get('state');
   var error = params.get('error');
 
-  function showError(msg) {
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function buildSettingsHref(callbackPath) {
+    if (!callbackPath || typeof callbackPath !== 'string') {
+      return '/settings?tab=integrations';
+    }
+
+    var marker = '/api/clickup/callback';
+    var idx = callbackPath.indexOf(marker);
+    if (idx === -1) {
+      return '/settings?tab=integrations';
+    }
+
+    var prefix = callbackPath.slice(0, idx);
+    return (prefix || '') + '/settings?tab=integrations';
+  }
+
+  function showError(msg, callbackPath) {
     document.getElementById('spinner').style.display = 'none';
     var el = document.getElementById('err');
     el.style.display = 'block';
-    el.innerHTML = msg + ' <a href="/apps/xklwb3f46m48u5s4h2h5d4pd/settings?tab=integrations">Go back</a>';
+    var href = buildSettingsHref(callbackPath);
+    el.innerHTML = escapeHtml(msg) + ' <a href="' + escapeHtml(href) + '">Go back</a>';
   }
 
   if (error) {
-    showError('ClickUp returned an error: ' + error);
+    showError('ClickUp returned an error: ' + error, null);
     return;
   }
 
   if (!code || !state) {
-    showError('Missing OAuth parameters.');
+    showError('Missing OAuth parameters.', null);
     return;
   }
 
@@ -85,8 +110,8 @@
   var parts   = state.split('|');
   var rawPath = parts.length >= 2 ? parts[parts.length - 1] : null;
 
-  if (!rawPath || !rawPath.startsWith('/apps/')) {
-    showError('Invalid state parameter.');
+  if (!rawPath || !rawPath.startsWith('/')) {
+    showError('Invalid state parameter.', rawPath);
     return;
   }
 

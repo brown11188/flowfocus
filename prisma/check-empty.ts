@@ -7,9 +7,9 @@
 import { PrismaClient } from '../src/generated/prisma/client/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 
-const url     = process.env.DATABASE_URL ?? 'file:./data/app.db'
+const url = process.env.DATABASE_URL ?? 'file:./data/app.db'
 const adapter = new PrismaBetterSqlite3({ url })
-const prisma  = new PrismaClient({ adapter })
+const prisma = new PrismaClient({ adapter })
 
 prisma.user
   .count()
@@ -20,15 +20,6 @@ prisma.user
     // Table may not exist yet — treat as 0
     console.log('0')
   })
-  .finally(() => prisma.$disconnect())
-
-prisma.user
-  .count()
-  .then((n) => {
-    console.log(n)
+  .finally(async () => {
+    await prisma.$disconnect()
   })
-  .catch(() => {
-    // Table may not exist yet — treat as 0
-    console.log('0')
-  })
-  .finally(() => prisma.$disconnect())
