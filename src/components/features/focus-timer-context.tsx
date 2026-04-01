@@ -144,10 +144,12 @@ export function FocusTimerProvider({ children }: { children: ReactNode }) {
         toast.success(`Session complete! ${actualMins} min on "${taskLabel.slice(0, 30)}"`);
       }
 
-      // Browser notification
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("Focus session complete! 🌟", { body: `${actualMins} min on "${taskLabel}"` });
-      }
+      // Dispatch PWA notification event — handled by PWANotificationListener
+      window.dispatchEvent(
+        new CustomEvent("pwa:focus-complete", {
+          detail: { taskLabel, durationMins: actualMins },
+        }),
+      );
     }
   }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -158,10 +160,6 @@ export function FocusTimerProvider({ children }: { children: ReactNode }) {
     setRemainingSecs(mins * 60);
     setElapsedSecs(0);
     setState("active");
-    // Request notification permission
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
   }, []);
 
   const pauseFocus = useCallback(() => setState("paused"), []);

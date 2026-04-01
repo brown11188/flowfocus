@@ -15,6 +15,13 @@ interface TaskStore {
   meetingNotes: MeetingNote[];
   statusReports: StatusReport[];
   isLoading: boolean;
+  hasOfflineChanges: boolean;
+  offlinePendingCount: number;
+  offlineOldestPendingAt: string | null;
+  offlineLastSyncedAt: string | null;
+  offlineSyncInProgress: boolean;
+  offlineFailedCount: number;
+  offlineLastError: string | null;
 
   setTasks: (tasks: Task[]) => void;
   setProjects: (projects: Project[]) => void;
@@ -29,6 +36,13 @@ interface TaskStore {
   setMeetingNotes: (items: MeetingNote[]) => void;
   setStatusReports: (items: StatusReport[]) => void;
   setIsLoading: (v: boolean) => void;
+  setHasOfflineChanges: (v: boolean) => void;
+  setOfflinePendingCount: (value: number) => void;
+  setOfflineOldestPendingAt: (value: string | null) => void;
+  setOfflineLastSyncedAt: (value: string | null) => void;
+  setOfflineSyncInProgress: (v: boolean) => void;
+  setOfflineFailedCount: (v: number) => void;
+  setOfflineLastError: (v: string | null) => void;
 
   addTask: (task: Task) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
@@ -75,6 +89,13 @@ export const useTaskStore = create<TaskStore>((set) => ({
   meetingNotes: [],
   statusReports: [],
   isLoading: false,
+  hasOfflineChanges: false,
+  offlinePendingCount: 0,
+  offlineOldestPendingAt: null,
+  offlineLastSyncedAt: null,
+  offlineSyncInProgress: false,
+  offlineFailedCount: 0,
+  offlineLastError: null,
 
   setTasks: (tasks) => set({ tasks }),
   setProjects: (projects) => set({ projects }),
@@ -89,6 +110,13 @@ export const useTaskStore = create<TaskStore>((set) => ({
   setMeetingNotes: (meetingNotes) => set({ meetingNotes }),
   setStatusReports: (statusReports) => set({ statusReports }),
   setIsLoading: (isLoading) => set({ isLoading }),
+  setHasOfflineChanges: (hasOfflineChanges) => set({ hasOfflineChanges }),
+  setOfflinePendingCount: (offlinePendingCount) => set({ offlinePendingCount }),
+  setOfflineOldestPendingAt: (offlineOldestPendingAt) => set({ offlineOldestPendingAt }),
+  setOfflineLastSyncedAt: (offlineLastSyncedAt) => set({ offlineLastSyncedAt }),
+  setOfflineSyncInProgress: (offlineSyncInProgress) => set({ offlineSyncInProgress }),
+  setOfflineFailedCount: (offlineFailedCount) => set({ offlineFailedCount }),
+  setOfflineLastError: (offlineLastError) => set({ offlineLastError }),
 
   addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
   updateTask: (id, updates) =>

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useTaskStore } from "@/store/task-store";
 import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ export function InlineAddTask({ defaultDate, defaultProjectId, onAdd }: InlineAd
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<1|2|3|4>(4);
   const [isLoading, setIsLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const inboxId = projects.find(p => p.isInbox)?.id;
 
@@ -47,7 +48,9 @@ export function InlineAddTask({ defaultDate, defaultProjectId, onAdd }: InlineAd
       onAdd?.(task);
       setTitle("");
       setPriority(4);
-      setIsOpen(false);
+      // Keep form open for quick consecutive entry
+      // Focus back on input so user can type the next task immediately
+      setTimeout(() => inputRef.current?.focus(), 0);
       toast.success("Task added!");
     } catch { toast.error("Failed to add task"); }
     finally { setIsLoading(false); }
@@ -68,6 +71,7 @@ export function InlineAddTask({ defaultDate, defaultProjectId, onAdd }: InlineAd
   return (
     <form onSubmit={handleSubmit} className="border border-violet-300 dark:border-violet-700 rounded-xl p-3 bg-white dark:bg-gray-900 shadow-sm">
       <input
+        ref={inputRef}
         autoFocus value={title} onChange={e => setTitle(e.target.value)}
         placeholder="Task name"
         className="w-full bg-transparent text-sm text-gray-900 dark:text-white placeholder-gray-400 outline-none mb-2"

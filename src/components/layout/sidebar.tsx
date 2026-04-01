@@ -5,6 +5,7 @@ import { signOut } from "next-auth/react";
 import { useTaskStore } from "@/store/task-store";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
+import { getPendingTaskMutationsCount, isOnline } from "@/lib/offline-tasks";
 import { cn } from "@/lib/utils";
 import { useFocusTimer } from "@/components/features/focus-timer-context";
 import {
@@ -45,7 +46,7 @@ function MicrosoftIconSmall({ className = "w-3.5 h-3.5" }: { className?: string 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { projects, tasks } = useTaskStore();
+  const { projects, tasks, hasOfflineChanges, offlinePendingCount } = useTaskStore();
   const { theme, setTheme } = useTheme();
   const { state: focusTimerState } = useFocusTimer();
   const [showProjects, setShowProjects] = useState(true);
@@ -55,12 +56,34 @@ export function Sidebar({ user }: SidebarProps) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | undefined>(undefined);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [online, setOnline] = useState(true);
   const { pmMode, togglePMMode } = usePMMode();
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setOnline(isOnline());
+
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    const onQueueChanged = () => {
+      // force render through store updates + keep online badge accurate
+      setOnline(isOnline());
+    };
+
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("offline-tasks:queue-changed", onQueueChanged);
+
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("offline-tasks:queue-changed", onQueueChanged);
+    };
+  }, []);
 
   // Prevent body scroll when mobile sidebar is open
   useEffect(() => {
@@ -157,6 +180,31 @@ export function Sidebar({ user }: SidebarProps) {
           <Sparkles className="w-4 h-4" />
         </button>
       </div>
+
+      {(!online || hasOfflineChanges) && (
+        <div className="px-3 pb-2">
+          <div className={cn(
+            "rounded-xl border px-3 py-2 text-xs",
+            !online
+              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"
+              : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
+          )}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{!online ? "Offline mode" : "Sync pending"}</span>
+              {hasOfflineChanges ? (
+                <span className="rounded-full border border-current/15 px-2 py-0.5 text-[10px] font-semibold">
+                  {offlinePendingCount || getPendingTaskMutationsCount()} pending
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 opacity-80">
+              {!online
+                ? "You can keep working. Changes will sync automatically when the connection returns."
+                : "Your offline edits are queued and waiting to sync."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3 space-y-0.5">

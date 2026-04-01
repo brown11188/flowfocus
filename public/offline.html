@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#7c3aed" />
+    <title>FlowFocus — Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #020617;
+        --panel: rgba(15, 23, 42, 0.88);
+        --text: #f8fafc;
+        --muted: #cbd5e1;
+        --accent: #8b5cf6;
+        --accent-2: #6366f1;
+        --border: rgba(255, 255, 255, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top, rgba(124, 58, 237, 0.35), transparent 30%),
+          linear-gradient(180deg, #0f172a 0%, var(--bg) 100%);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+      }
+
+      .card {
+        width: min(100%, 460px);
+        padding: 28px;
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(10px);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(124, 58, 237, 0.15);
+        color: #e9d5ff;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      h1 {
+        margin: 18px 0 12px;
+        font-size: clamp(28px, 5vw, 36px);
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      a,
+      button {
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        text-decoration: none;
+        font: inherit;
+      }
+
+      .primary,
+      .secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 12px;
+        font-weight: 600;
+      }
+
+      .primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color: white;
+      }
+
+      .secondary {
+        border: 1px solid var(--border);
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.04);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge">⚡ FlowFocus offline mode</div>
+      <h1>You're offline right now.</h1>
+      <p>
+        FlowFocus can still reopen pages you've already visited, but live sync and AI features need a connection.
+      </p>
+      <p>
+        Reconnect to refresh your workspace, sync Outlook/ClickUp, and fetch the latest task updates.
+      </p>
+      <div class="actions">
+        <a class="primary" href="./">Try again</a>
+        <button class="secondary" type="button" onclick="window.location.reload()">Reload page</button>
+      </div>
+    </main>
+  </body>
+</html>

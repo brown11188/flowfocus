@@ -3,9 +3,35 @@ import { useEffect, useCallback } from "react";
 import { useTaskStore } from "@/store/task-store";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
+import {
+  flushOfflineTaskQueue,
+  getOfflineTaskQueue,
+  getOldestPendingTaskMutationAt,
+  getPendingTaskMutationsCount,
+  getOfflineQueueDiagnostics,
+  hasPendingTaskMutations,
+  isOnline,
+} from "@/lib/offline-tasks";
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const { setTasks, setProjects, setLabels, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports } = useTaskStore();
+  const {
+    setTasks,
+    setProjects,
+    setLabels,
+    setRisks,
+    setApprovalItems,
+    setScopeChanges,
+    setDecisionLogs,
+    setMeetingNotes,
+    setStatusReports,
+    setHasOfflineChanges,
+    setOfflinePendingCount,
+    setOfflineOldestPendingAt,
+    setOfflineLastSyncedAt,
+    setOfflineSyncInProgress,
+    setOfflineFailedCount,
+    setOfflineLastError,
+  } = useTaskStore();
 
   const load = useCallback(async () => {
     try {
@@ -46,16 +72,83 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setTasks, setProjects, setLabels, setRisks, setApprovalItems, setScopeChanges, setDecisionLogs, setMeetingNotes, setStatusReports]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const updateOfflineIndicators = useCallback(() => {
+    const pendingCount = getPendingTaskMutationsCount();
+    setHasOfflineChanges(pendingCount > 0);
+    setOfflinePendingCount(pendingCount);
+    setOfflineOldestPendingAt(getOldestPendingTaskMutationAt());
+  }, [setHasOfflineChanges, setOfflineOldestPendingAt, setOfflinePendingCount]);
 
-  // Refresh when Friday creates a task
+  const syncOfflineQueue = useCallback(async (showToast = false) => {
+    if (!isOnline() || !hasPendingTaskMutations()) {
+      updateOfflineIndicators();
+      return;
+    }
+
+    setOfflineSyncInProgress(true);
+    setOfflineLastError(null);
+
+    const result = await flushOfflineTaskQueue();
+    updateOfflineIndicators();
+
+    const diagnostics = getOfflineQueueDiagnostics();
+    setOfflineFailedCount(diagnostics.totalFailed);
+    setOfflineLastError(diagnostics.lastError);
+    setOfflineSyncInProgress(false);
+
+    if (result.syncedCount > 0) {
+      setOfflineLastSyncedAt(new Date().toISOString());
+      await load();
+      if (showToast) {
+        toast.success(`Synced ${result.syncedCount} offline change${result.syncedCount === 1 ? "" : "s"}.`);
+      }
+    }
+
+    if (result.failedCount > 0 && showToast) {
+      toast.warning(`${result.failedCount} offline change${result.failedCount === 1 ? " is" : "s are"} still pending.`);
+    }
+  }, [load, setOfflineLastSyncedAt, setOfflineSyncInProgress, setOfflineFailedCount, setOfflineLastError, updateOfflineIndicators]);
+
   useEffect(() => {
-    const handler = () => load();
-    window.addEventListener("friday:task-created", handler);
-    return () => window.removeEventListener("friday:task-created", handler);
-  }, [load]);
+    updateOfflineIndicators();
+    void load();
+  }, [load, updateOfflineIndicators]);
+
+  useEffect(() => {
+    const onTaskCreated = () => load();
+    const onQueued = () => updateOfflineIndicators();
+    const onQueueChanged = () => updateOfflineIndicators();
+    const onSynced = () => {
+      updateOfflineIndicators();
+      setOfflineLastSyncedAt(new Date().toISOString());
+      void load();
+    };
+    const onSyncFailed = () => updateOfflineIndicators();
+    const onOnline = () => {
+      void syncOfflineQueue(true);
+    };
+    const onManualSync = () => {
+      void syncOfflineQueue(true);
+    };
+
+    window.addEventListener("friday:task-created", onTaskCreated);
+    window.addEventListener("offline-tasks:queued", onQueued);
+    window.addEventListener("offline-tasks:queue-changed", onQueueChanged);
+    window.addEventListener("offline-tasks:synced", onSynced);
+    window.addEventListener("offline-tasks:sync-failed", onSyncFailed);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline-tasks:manual-sync", onManualSync);
+
+    return () => {
+      window.removeEventListener("friday:task-created", onTaskCreated);
+      window.removeEventListener("offline-tasks:queued", onQueued);
+      window.removeEventListener("offline-tasks:queue-changed", onQueueChanged);
+      window.removeEventListener("offline-tasks:synced", onSynced);
+      window.removeEventListener("offline-tasks:sync-failed", onSyncFailed);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline-tasks:manual-sync", onManualSync);
+    };
+  }, [load, setOfflineLastSyncedAt, syncOfflineQueue, updateOfflineIndicators]);
 
   return <>{children}</>;
 }

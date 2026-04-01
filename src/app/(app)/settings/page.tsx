@@ -5,15 +5,16 @@ import { useTheme } from "next-themes";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink, Globe, Sparkles } from "lucide-react";
+import { Settings, User, Palette, Shield, Moon, Sun, Monitor, Plug, ExternalLink, Globe, Sparkles, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MicrosoftConnectPanel from "@/components/microsoft/microsoft-connect-panel";
 import { AIMemoryTab } from "@/components/features/ai-memory-tab";
 import { TIMEZONE_OPTIONS, getTimezoneOffset } from "@/lib/timezone";
 import { apiFetch } from "@/lib/api";
 import { useTimezoneCtx } from "@/components/layout/timezone-provider";
+import { PWANotificationSettings } from "@/components/features/pwa-notification-settings";
 
-type Tab = "profile" | "appearance" | "timezone" | "integrations" | "danger" | "pm" | "ai";
+type Tab = "profile" | "appearance" | "timezone" | "notifications" | "integrations" | "danger" | "pm" | "ai";
 
 function SettingsPageInner() {
   const { data: session, update } = useSession();
@@ -77,6 +78,7 @@ function SettingsPageInner() {
     { id: "profile", label: "Profile", icon: User },
     { id: "appearance", label: "Appearance", icon: Palette },
     { id: "timezone", label: "Timezone", icon: Globe },
+    { id: "notifications", label: "Notifications", icon: Bell },
     { id: "integrations", label: "Integrations", icon: Plug },
     { id: "pm", label: "PM", icon: Globe },
     { id: "ai", label: "AI Memory", icon: Sparkles },
@@ -233,6 +235,9 @@ function SettingsPageInner() {
           </div>
         </div>
       )}
+
+      {/* Notifications tab */}
+      {activeTab === "notifications" && <PWANotificationSettings />}
 
       {/* Integrations tab */}
       {activeTab === "integrations" && (
