@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Bell, X, AlertTriangle, Mail, CheckCircle2, Flame, Calendar, Trash2 } from "lucide-react";
+import { Bell, X, AlertTriangle, Mail, CheckCircle2, Flame, Calendar, Trash2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/store/task-store";
 import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 import { isOverdue, isToday } from "@/lib/timezone";
+import { apiFetch } from "@/lib/api";
 import Link from "next/link";
 
 interface Notification {
@@ -27,8 +28,30 @@ export function NotificationCenter() {
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
+  const [emailDigest, setEmailDigest] = useState<{ missedReplyCount: number; needsReplyCount: number } | null>(null);
+  const [meetingSoon, setMeetingSoon] = useState<{ subject: string; startTime: string } | null>(null);
   const { tasks, approvalItems } = useTaskStore();
   const { timezone } = useTimezoneCtx();
+
+  // Fetch email digest counts and next meeting for richer notifications
+  useEffect(() => {
+    apiFetch("/api/microsoft/email-digest").then(r => r.ok ? r.json() : null).then(data => {
+      if (data?.digest?.status === "done") {
+        setEmailDigest({ missedReplyCount: data.digest.missedReplyCount || 0, needsReplyCount: data.digest.needsReplyCount || 0 });
+      }
+    }).catch(() => {});
+    // Next meeting within 2h
+    const now = new Date();
+    const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    apiFetch(`/api/microsoft/calendar?timeMin=${now.toISOString()}&timeMax=${twoHoursLater.toISOString()}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.events?.length > 0) {
+          const next = data.events[0];
+          setMeetingSoon({ subject: next.subject, startTime: next.start?.dateTime || next.startDateTime });
+        }
+      }).catch(() => {});
+  }, []);
 
   // Generate notifications from current state
   const notifications: Notification[] = useMemo(() => {
@@ -81,8 +104,52 @@ export function NotificationCenter() {
       });
     }
 
+    // Email notifications
+    if (emailDigest && emailDigest.missedReplyCount > 0) {
+      notifs.push({
+        id: "email-missed",
+        type: "email",
+        title: `${emailDigest.missedReplyCount} missed ${emailDigest.missedReplyCount === 1 ? "reply" : "replies"}`,
+        description: "Emails waiting for your response",
+        icon: <Mail className="w-4 h-4 text-red-500" />,
+        color: "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30",
+        href: "/dashboard",
+        timestamp: new Date(),
+      });
+    }
+    if (emailDigest && emailDigest.needsReplyCount > 0) {
+      notifs.push({
+        id: "email-needs",
+        type: "email",
+        title: `${emailDigest.needsReplyCount} ${emailDigest.needsReplyCount === 1 ? "email needs" : "emails need"} reply`,
+        description: "New emails with action items",
+        icon: <Mail className="w-4 h-4 text-amber-500" />,
+        color: "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30",
+        href: "/dashboard",
+        timestamp: new Date(),
+      });
+    }
+
+    // Meeting starting soon
+    if (meetingSoon) {
+      const startTime = new Date(meetingSoon.startTime);
+      const minsUntil = Math.round((startTime.getTime() - Date.now()) / 60000);
+      if (minsUntil > 0 && minsUntil <= 120) {
+        notifs.push({
+          id: "meeting-soon",
+          type: "meeting",
+          title: `"${meetingSoon.subject.slice(0, 40)}" in ${minsUntil} min`,
+          description: "Upcoming meeting — prepare now",
+          icon: <Calendar className="w-4 h-4 text-violet-500" />,
+          color: "border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/30",
+          href: "/pm?tab=meetings",
+          timestamp: new Date(),
+        });
+      }
+    }
+
     return notifs;
-  }, [tasks, approvalItems, timezone]);
+  }, [tasks, approvalItems, timezone, emailDigest, meetingSoon]);
 
   const active = notifications.filter(n => !dismissed.has(n.id));
   const unreadCount = active.length;

@@ -8,7 +8,7 @@ import {
   Mail, RefreshCw, AlertCircle, Clock, RotateCcw,
   ExternalLink, ChevronDown, ChevronUp, Sparkles,
   MailOpen, CheckCircle2, ShieldAlert,
-  Tag, Building2, Globe, Check,
+  Tag, Building2, Globe, Check, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTimezoneCtx } from "@/components/layout/timezone-provider";
@@ -86,6 +86,8 @@ function EmailItemCard({
   onCreateTask: (item: EmailDigestItem) => void;
   onUndo?: undefined;
 }) {
+  const [riskDetection, setRiskDetection] = useState<{ type: string; title: string; description: string } | null>(null);
+  const [detecting, setDetecting] = useState(false);
   const uc = URGENCY_CONFIG[urgency];
   const initials = (item.fromName ?? item.fromEmail ?? "?").slice(0, 2).toUpperCase();
 
@@ -143,6 +145,31 @@ function EmailItemCard({
             >
               <Sparkles className="w-4 h-4" /> +Task
             </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (riskDetection) { setRiskDetection(null); return; }
+                setDetecting(true);
+                try {
+                  const res = await apiFetch("/api/ai/detect-email-risk", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ subject: item.subject, body: item.aiReason || "", fromName: item.fromName }),
+                  });
+                  const data = await res.json();
+                  const found = (data.items || []).find((i: { type: string }) => i.type !== "none");
+                  if (found) setRiskDetection(found);
+                  else toast.info("No risk or decision detected");
+                } catch { toast.error("Detection failed"); }
+                finally { setDetecting(false); }
+              }}
+              disabled={detecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/60 active:scale-95 transition-all min-h-[36px]"
+              title="Detect risk/decision"
+            >
+              {detecting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
+              {riskDetection ? "Hide" : "Scan"}
+            </button>
             {item.webLink && (
               <a
                 href={item.webLink}
@@ -155,6 +182,29 @@ function EmailItemCard({
               </a>
             )}
           </div>
+          {riskDetection && (
+            <div className={cn(
+              "mt-2 p-2.5 rounded-lg border text-xs",
+              riskDetection.type === "risk" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800" : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+            )}>
+              <div className="flex items-center gap-1.5 mb-1">
+                {riskDetection.type === "risk" ? <ShieldAlert className="w-3.5 h-3.5 text-red-500" /> : <FileText className="w-3.5 h-3.5 text-blue-500" />}
+                <span className={cn("font-medium", riskDetection.type === "risk" ? "text-red-700 dark:text-red-300" : "text-blue-700 dark:text-blue-300")}>
+                  {riskDetection.type === "risk" ? "Risk Detected" : "Decision Detected"}
+                </span>
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 mb-1.5">{riskDetection.description}</p>
+              <Link
+                href={riskDetection.type === "risk" ? "/pm?tab=risks" : "/pm?tab=decisions"}
+                onClick={() => setRiskDetection(null)}
+                className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg font-medium transition-colors",
+                  riskDetection.type === "risk" ? "bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 hover:bg-red-300" : "bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 hover:bg-blue-300"
+                )}
+              >
+                Log {riskDetection.type === "risk" ? "Risk" : "Decision"} →
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

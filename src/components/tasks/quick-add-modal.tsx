@@ -1,11 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useTaskStore } from "@/store/task-store";
-import { X, Flag, Calendar, RefreshCw, Sparkles } from "lucide-react";
+import { X, Flag, Calendar, RefreshCw, Sparkles, Lightbulb } from "lucide-react";
 import { toast } from "sonner";
 import { cn, PRIORITY_CONFIG } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { parseNaturalLanguage } from "@/hooks/use-natural-language-parse";
+import { useSmartDeadline } from "@/hooks/use-smart-deadline";
 
 const PRIORITY_PILL_COLORS: Record<number, string> = {
   1: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
@@ -24,11 +25,14 @@ export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => vo
   const [recurrence, setRecurrence] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showNLPills, setShowNLPills] = useState(false);
+  const { suggestion, loading: deadlineLoading, predict: predictDeadline, clear: clearDeadline } = useSmartDeadline();
+  const debounceRef = useState<ReturnType<typeof setTimeout> | null>(null);
 
   // FEAT-12: Natural language parsing
   useEffect(() => {
     if (!rawInput.trim()) {
       setShowNLPills(false);
+      clearDeadline();
       return;
     }
     const parsed = parseNaturalLanguage(rawInput);
@@ -42,7 +46,16 @@ export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => vo
       setShowNLPills(false);
       setTitle(rawInput);
     }
-  }, [rawInput]);
+    // FEAT-03: Smart Deadline — debounced AI prediction
+    if (debounceRef[0]) clearTimeout(debounceRef[0]);
+    const timer = setTimeout(() => {
+      if (rawInput.trim().length >= 5 && !parsed.dueDate) {
+        predictDeadline(rawInput.trim(), projectId || undefined);
+      }
+    }, 1200);
+    debounceRef[1](timer);
+    return () => clearTimeout(timer);
+  }, [rawInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,6 +149,33 @@ export function QuickAddModal({ onClose, defaultProjectId }: { onClose: () => vo
               <button type="button" onClick={() => setRecurrence(null)} className="text-gray-400 hover:text-red-500">
                 <X className="w-3 h-3" />
               </button>
+            </div>
+          )}
+          {/* FEAT-03: Smart Deadline AI Suggestion */}
+          {suggestion && !showNLPills && (
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+              <Lightbulb className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  <span className="font-medium">💡 AI Suggestion:</span> {suggestion.reasoning}
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
+                  Suggested: {new Date(suggestion.suggestedDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  <span className="ml-1 opacity-60">({suggestion.confidence} confidence)</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setDueDate(suggestion.suggestedDate); clearDeadline(); toast.success("Date applied!"); }}
+                className="px-2.5 py-1 text-[11px] font-medium bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 rounded-lg hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors flex-shrink-0"
+              >
+                Apply
+              </button>
+            </div>
+          )}
+          {deadlineLoading && (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <Lightbulb className="w-3 h-3 animate-pulse" /> Analyzing task for deadline suggestion...
             </div>
           )}
           <div className="flex justify-end gap-2 pt-2">

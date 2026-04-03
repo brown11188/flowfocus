@@ -11,12 +11,17 @@ const SHORTCUTS = [
     { key: "W", desc: "Weekly Review" },
     { key: "K", desc: "Kanban Board" },
     { key: "P", desc: "PM Workspace" },
+    { key: "I", desc: "Integrations" },
+    { key: "S", desc: "Settings" },
   ]},
   { group: "Actions", items: [
-    { key: "N", desc: "New task" },
+    { key: "N", desc: "New task (Quick Add)" },
     { key: "F", desc: "Start Focus session" },
     { key: "⌘K", desc: "Command palette" },
+    { key: "/", desc: "Command palette" },
     { key: "?", desc: "Show shortcuts" },
+    { key: "G", desc: "Ask Friday AI" },
+    { key: "R", desc: "Weekly Review" },
   ]},
 ];
 
@@ -61,6 +66,14 @@ export function KeyboardShortcutsProvider() {
           e.preventDefault();
           router.push("/pm");
           break;
+        case "i":
+          e.preventDefault();
+          router.push("/integrations");
+          break;
+        case "s":
+          e.preventDefault();
+          router.push("/settings");
+          break;
         case "n":
           e.preventDefault();
           window.dispatchEvent(new CustomEvent("quick-capture:open"));
@@ -68,6 +81,14 @@ export function KeyboardShortcutsProvider() {
         case "f":
           e.preventDefault();
           window.dispatchEvent(new CustomEvent("focus-timer:open-setup"));
+          break;
+        case "g":
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent("friday:open"));
+          break;
+        case "r":
+          e.preventDefault();
+          router.push("/weekly");
           break;
         case "?":
           e.preventDefault();

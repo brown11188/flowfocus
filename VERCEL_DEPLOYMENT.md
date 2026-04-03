@@ -1,17 +1,12 @@
 # FlowFocus on Vercel
 
 ## Summary
-FlowFocus currently builds on Vercel after the Prisma client generation fix, but **production runtime on Vercel is still high risk** because the app uses:
-
-- Prisma + SQLite
-- `better-sqlite3`
-- file-based persistence (`DATABASE_URL=file:...`)
-- middleware/auth/basePath logic originally designed for subpath reverse-proxy deployment
+FlowFocus is now prepared to run against **PostgreSQL** in production. The Prisma runtime no longer depends on SQLite or `better-sqlite3`, while the app remains compatible with the existing basePath/auth deployment model.
 
 For Vercel, you should do two things:
 
 1. Configure Vercel environment variables correctly.
-2. Prefer migrating away from SQLite to a managed Postgres database for production.
+2. Provision a managed Postgres database and run Prisma migrations there.
 
 ---
 
@@ -70,52 +65,39 @@ Those are for the reverse-proxy subpath deployment, not a standard Vercel root a
 
 ---
 
-## 3) SQLite on Vercel: Why It Is Risky
+## 3) PostgreSQL on Vercel
 
 Current app state:
 
-- Prisma datasource provider = `sqlite`
-- runtime uses `@prisma/adapter-better-sqlite3`
-- database path uses `file:` URLs
+- Prisma datasource provider = `postgresql`
+- runtime uses the standard Prisma client
+- `DATABASE_URL` should point to a managed Postgres instance
 
-This is not a good fit for Vercel production because:
+This is the recommended fit for Vercel production because:
 
-- serverless functions are ephemeral
-- filesystem writes are not durable in the way SQLite expects
-- multiple invocations can create locking and consistency issues
-- `better-sqlite3` is optimized for persistent server/container workloads, not Vercel-style stateless runtime
-
-### Practical impact
-You may see one or more of these after build succeeds:
-
-- auth/session persistence issues
-- missing data after redeploys
-- write failures
-- database lock errors
-- inconsistent behavior between requests
+- data is durable
+- concurrent access is supported properly
+- Prisma works well in stateless/serverless environments with hosted Postgres
+- auth/session persistence is reliable
 
 ---
 
-## 4) Recommended Production Database Migration Path
+## 4) Recommended Production Database Setup
 
-### Best option
-Migrate production from SQLite to **Postgres**.
-
-Good options:
+Good Postgres options:
 
 - Neon
 - Supabase Postgres
 - Vercel Postgres
 - Railway Postgres
 
-### Minimal migration plan
+### Minimal rollout plan
 
-1. Change Prisma datasource from `sqlite` to `postgresql`
-2. Replace `@prisma/adapter-better-sqlite3` runtime usage with normal Prisma Postgres client usage
-3. Provision hosted Postgres
-4. Set `DATABASE_URL` in Vercel
-5. Run Prisma migrations against Postgres
-6. Import existing SQLite data if needed
+1. Provision hosted Postgres
+2. Set `DATABASE_URL` in Vercel
+3. Run Prisma migrations against Postgres
+4. Import existing SQLite data if needed
+5. Update any local/dev env vars to Postgres URLs
 
 ---
 
@@ -148,11 +130,7 @@ Preferred:
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB?sslmode=require
 ```
 
-Not recommended for Vercel production:
-
-```bash
-DATABASE_URL=file:./data/app.db
-```
+Use a managed PostgreSQL database for Vercel production. SQLite file URLs are no longer part of the recommended deployment path.
 
 ---
 
@@ -214,9 +192,9 @@ Use Vercel with:
 - updated OAuth callback URLs
 
 ### Real production-safe path
-Migrate DB from SQLite to Postgres.
+Use managed PostgreSQL with Prisma migrations and import legacy SQLite data once.
 
 If you want, the next implementation step should be:
 
-1. **convert Prisma schema/runtime from SQLite to Postgres**, then
-2. **prepare a data migration path from the current SQLite DB**.
+1. **move legacy SQLite data into PostgreSQL**, then
+2. **generate a fresh PostgreSQL baseline migration history**.
