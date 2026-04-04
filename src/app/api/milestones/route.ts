@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { milestones as milestonesTable } from "@/lib/db/schema";
+
 
 function serializeMilestone(m: Record<string, unknown>) {
+  const taskList = Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>) : [];
   return {
     ...m,
     targetDate: m.targetDate instanceof Date ? (m.targetDate as Date).toISOString() : m.targetDate,
     createdAt: m.createdAt instanceof Date ? (m.createdAt as Date).toISOString() : m.createdAt,
     updatedAt: m.updatedAt instanceof Date ? (m.updatedAt as Date).toISOString() : m.updatedAt,
-    tasks: Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>).map((mt) => ({
+    tasks: taskList.map((mt) => ({
       ...mt,
       task: mt.task ? serializeTask(mt.task as Record<string, unknown>) : null,
-    })) : [],
+    })),
+    _count: { tasks: taskList.length },
   };
 }
 
@@ -19,16 +23,16 @@ function serializeTask(t: Record<string, unknown>) {
   return {
     ...t,
     dueDate: t.dueDate instanceof Date ? (t.dueDate as Date).toISOString() : (t.dueDate ?? null),
-    completedAt: t.completedAt instanceof Date ? (t.completedAt as Date).toISOString() : (t.completedAt ?? null),
-    createdAt: t.createdAt instanceof Date ? (t.createdAt as Date).toISOString() : t.createdAt,
-    updatedAt: t.updatedAt instanceof Date ? (t.updatedAt as Date).toISOString() : t.updatedAt,
   };
 }
 
-const MILESTONE_INCLUDE = {
-  tasks: { include: { task: { select: { id: true, title: true, completed: true, priority: true, dueDate: true } } } },
-  _count: { select: { tasks: true } },
-};
+const MILESTONE_WITH = {
+  tasks: {
+    with: {
+      task: { columns: { id: true, title: true, completed: true, priority: true, dueDate: true } as const },
+    },
+  },
+} as const;
 
 // GET /api/milestones?projectId=xxx
 export async function GET(req: NextRequest) {
@@ -36,17 +40,35 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const projectId = req.nextUrl.searchParams.get("projectId");
-  const where = projectId
-    ? { projectId, project: { userId: session.user.id } }
-    : { project: { userId: session.user.id } };
 
-  const milestones = await prisma.milestone.findMany({
-    where,
-    include: MILESTONE_INCLUDE,
-    orderBy: { targetDate: "asc" },
-  });
+  let milestoneList;
+  if (projectId) {
+    const project = await db.query.projects.findFirst({
+      where: (p, { eq, and }) => and(eq(p.id, projectId), eq(p.userId, session.user.id)),
+    });
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  return NextResponse.json(milestones.map((m) => serializeMilestone(m as unknown as Record<string, unknown>)));
+    milestoneList = await db.query.milestones.findMany({
+      where: (m, { eq }) => eq(m.projectId, projectId),
+      with: MILESTONE_WITH,
+      orderBy: (m, { asc }) => [asc(m.targetDate)],
+    });
+  } else {
+    const userProjects = await db.query.projects.findMany({
+      where: (p, { eq }) => eq(p.userId, session.user.id),
+      columns: { id: true },
+    });
+    const projectIds = userProjects.map((p) => p.id);
+    if (projectIds.length === 0) return NextResponse.json([]);
+
+    milestoneList = await db.query.milestones.findMany({
+      where: (m, { inArray }) => inArray(m.projectId, projectIds),
+      with: MILESTONE_WITH,
+      orderBy: (m, { asc }) => [asc(m.targetDate)],
+    });
+  }
+
+  return NextResponse.json(milestoneList.map((m) => serializeMilestone(m as unknown as Record<string, unknown>)));
 }
 
 // POST /api/milestones
@@ -59,12 +81,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name, targetDate, projectId required" }, { status: 400 });
   }
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, userId: session.user.id } });
+  const project = await db.query.projects.findFirst({
+    where: (p, { eq, and }) => and(eq(p.id, projectId), eq(p.userId, session.user.id)),
+  });
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const milestone = await prisma.milestone.create({
-    data: { name: name.trim(), description, targetDate: new Date(targetDate), projectId },
-    include: MILESTONE_INCLUDE,
+  const [inserted] = await db
+    .insert(milestonesTable)
+    .values({ name: name.trim(), description, targetDate: new Date(targetDate), projectId })
+    .returning();
+
+  const milestone = await db.query.milestones.findFirst({
+    where: (m, { eq }) => eq(m.id, inserted.id),
+    with: MILESTONE_WITH,
   });
 
   return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));

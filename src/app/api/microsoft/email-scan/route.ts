@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { fetchRecentEmails } from "@/lib/microsoft-graph";
 import { runEmailScan } from "@/lib/email-scan";
 
@@ -15,18 +17,15 @@ export async function POST() {
     }
 
     // Fetch user's timezone
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { timezone: true },
-    });
+    const user = await db.select({ timezone: users.timezone }).from(users)
+      .where(eq(users.id, session.user.id)).limit(1).then(r => r[0]);
     const tz = user?.timezone ?? "UTC";
 
     await runEmailScan(session.user.id, tz);
 
-    const connection = await prisma.microsoftConnection.findUnique({
-      where: { userId: session.user.id },
-      select: { lastEmailSyncAt: true },
-    });
+    const connection = await db.select({ lastEmailSyncAt: microsoftConnections.lastEmailSyncAt })
+      .from(microsoftConnections).where(eq(microsoftConnections.userId, session.user.id))
+      .limit(1).then(r => r[0]);
 
     const unreadEmails = await fetchRecentEmails(session.user.id, {
       top: 250,

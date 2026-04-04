@@ -247,25 +247,27 @@ async function handleMicrosoftConnectCallback(
   }
 
   // Save MicrosoftConnection for the ORIGINAL logged-in user
-  const { prisma } = await import("@/lib/prisma");
+  const { db } = await import("@/lib/db");
+  const { microsoftConnections } = await import("@/lib/db/schema");
   try {
     const expiresAt = tokenData.expires_in
       ? new Date(Date.now() + (tokenData.expires_in as number) * 1000)
       : null;
-    await prisma.microsoftConnection.upsert({
-      where: { userId },
-      create: {
-        userId,
-        microsoftId:  (graphProfile.id  ?? "") as string,
-        email:        (graphProfile.mail ?? graphProfile.userPrincipalName ?? null) as string | null,
-        displayName:  (graphProfile.displayName ?? null) as string | null,
-        accessToken:  tokenData.access_token as string,
-        refreshToken: (tokenData.refresh_token as string | null) ?? null,
-        expiresAt,
-        scopes:       (tokenData.scope as string | null) ?? null,
-        accountType:  "work",
-      },
-      update: {
+    const { createId } = await import("@paralleldrive/cuid2");
+    await db.insert(microsoftConnections).values({
+      id: createId(),
+      userId,
+      microsoftId:  (graphProfile.id  ?? "") as string,
+      email:        (graphProfile.mail ?? graphProfile.userPrincipalName ?? null) as string | null,
+      displayName:  (graphProfile.displayName ?? null) as string | null,
+      accessToken:  tokenData.access_token as string,
+      refreshToken: (tokenData.refresh_token as string | null) ?? null,
+      expiresAt,
+      scopes:       (tokenData.scope as string | null) ?? null,
+      accountType:  "work",
+    }).onConflictDoUpdate({
+      target: microsoftConnections.userId,
+      set: {
         microsoftId:  (graphProfile.id  ?? "") as string,
         email:        (graphProfile.mail ?? graphProfile.userPrincipalName ?? null) as string | null,
         displayName:  (graphProfile.displayName ?? null) as string | null,

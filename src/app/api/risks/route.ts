@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { risks } from "@/lib/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 function serialize(item: Record<string, unknown>) {
   return {
@@ -14,7 +16,11 @@ function serialize(item: Record<string, unknown>) {
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const items = await prisma.risk.findMany({ where: { userId: session.user.id }, orderBy: [{ score: "desc" }, { createdAt: "desc" }] });
+  const items = await db
+    .select()
+    .from(risks)
+    .where(eq(risks.userId, session.user.id))
+    .orderBy(desc(risks.score), desc(risks.createdAt));
   return NextResponse.json(items.map((item) => serialize(item as unknown as Record<string, unknown>)));
 }
 
@@ -24,8 +30,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const probability = Number(body.probability ?? 3);
   const impact = Number(body.impact ?? 3);
-  const item = await prisma.risk.create({
-    data: {
+  const [item] = await db
+    .insert(risks)
+    .values({
       title: String(body.title ?? "").trim(),
       description: body.description ?? null,
       projectId: body.projectId,
@@ -38,7 +45,8 @@ export async function POST(req: NextRequest) {
       mitigationPlan: body.mitigationPlan ?? null,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       source: body.source ?? "manual",
-    },
-  });
+    })
+    .returning();
   return NextResponse.json(serialize(item as unknown as Record<string, unknown>));
 }
+

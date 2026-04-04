@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-
-const TASK_INCLUDE = {
-  project: true,
-  labels: { include: { label: true } },
-  subtasks: { where: { isDeleted: false } },
-  blockedBy: { include: { blockingTask: { select: { id: true, title: true, completed: true } } } },
-  blocking: { include: { blockedTask: { select: { id: true, title: true, completed: true } } } },
-  timeLogs: { orderBy: { loggedAt: "desc" as const } },
-};
+import { db } from "@/lib/db";
+import { tasks } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 function serializeTask(t: Record<string, unknown>) {
   return {
@@ -20,7 +13,7 @@ function serializeTask(t: Record<string, unknown>) {
     blockedAt: t.blockedAt instanceof Date ? (t.blockedAt as Date).toISOString() : (t.blockedAt ?? null),
     createdAt: t.createdAt instanceof Date ? (t.createdAt as Date).toISOString() : t.createdAt,
     updatedAt: t.updatedAt instanceof Date ? (t.updatedAt as Date).toISOString() : t.updatedAt,
-    labels: Array.isArray(t.labels) ? (t.labels as Array<{label: unknown}>).map((l) => l.label) : [],
+    labels: Array.isArray(t.labels) ? (t.labels as Array<{ label: unknown }>).map((l) => l.label) : [],
     timeLogs: Array.isArray(t.timeLogs) ? (t.timeLogs as Array<Record<string, unknown>>).map((log) => ({
       ...log,
       loggedAt: log.loggedAt instanceof Date ? (log.loggedAt as Date).toISOString() : log.loggedAt,
@@ -32,10 +25,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const userId = session.user.id;
   const { id } = await params;
   const body = await req.json();
 
-  const task = await prisma.task.findFirst({ where: { id, userId: session.user.id } });
+  const task = await db.query.tasks.findFirst({
+    where: (t, { eq: e, and: a }) => a(e(t.id, id), e(t.userId, userId)),
+  });
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const updates: Record<string, unknown> = {};
@@ -58,20 +54,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
   if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
   if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
-  if (body.assigneeName !== undefined) updates.assigneeName = body.assigneeName;
-  if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
-  if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
-  if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
 
   if (body.completed !== undefined) {
     updates.completed = body.completed;
     updates.completedAt = body.completed ? new Date() : null;
   }
 
-  const updated = await prisma.task.update({
-    where: { id },
-    data: updates,
-    include: TASK_INCLUDE,
+  await db.update(tasks).set(updates).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+
+  const updated = await db.query.tasks.findFirst({
+    where: (t, { eq: e }) => e(t.id, id),
+    with: {
+      project: true,
+      labels: { with: { label: true } },
+      subtasks: { where: (t, { eq }) => eq(t.isDeleted, false) },
+      blockedBy: { with: { blockingTask: true } },
+      blocking: { with: { blockedTask: true } },
+      timeLogs: { orderBy: (tl, { desc }) => [desc(tl.loggedAt)] },
+    },
   });
 
   // Auto-generate next occurrence for recurring tasks on completion
@@ -86,11 +86,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const userId = session.user.id;
   const { id } = await params;
-  await prisma.task.update({
-    where: { id, userId: session.user.id },
-    data: { isDeleted: true, deletedAt: new Date() },
-  });
+  await db.update(tasks)
+    .set({ isDeleted: true, deletedAt: new Date() })
+    .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
 
   return NextResponse.json({ success: true });
 }
@@ -107,22 +107,20 @@ async function createNextRecurrence(task: {
   if (!nextDate) return;
   if (task.recurrenceEndDate && nextDate > task.recurrenceEndDate) return;
 
-  await prisma.task.create({
-    data: {
-      title: task.title,
-      notes: task.notes,
-      dueDate: nextDate,
-      dueTime: task.dueTime,
-      priority: task.priority,
-      userId: task.userId,
-      projectId: task.projectId,
-      recurrenceRule: task.recurrenceRule,
-      recurrenceInterval: task.recurrenceInterval,
-      recurrenceDays: task.recurrenceDays,
-      recurrenceEndDate: task.recurrenceEndDate,
-      recurringParentId: task.id,
-      status: "TODO",
-    },
+  await db.insert(tasks).values({
+    title: task.title,
+    notes: task.notes,
+    dueDate: nextDate,
+    dueTime: task.dueTime,
+    priority: task.priority,
+    userId: task.userId,
+    projectId: task.projectId,
+    recurrenceRule: task.recurrenceRule,
+    recurrenceInterval: task.recurrenceInterval,
+    recurrenceDays: task.recurrenceDays,
+    recurrenceEndDate: task.recurrenceEndDate,
+    recurringParentId: task.id,
+    status: "TODO",
   });
 }
 

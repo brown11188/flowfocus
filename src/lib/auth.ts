@@ -1,10 +1,13 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
-import { PrismaAdapter } from "@auth/prisma-adapter";
+import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { users, accounts, sessions, verificationTokens, projects, microsoftConnections } from "@/lib/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 
 // This app can run either:
 // - at the root domain on Vercel: NEXT_PUBLIC_BASE_PATH=""
@@ -29,8 +32,12 @@ function authLog(step: string, data: Record<string, unknown>) {
 }
 
 const config: NextAuthConfig = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  adapter: PrismaAdapter(prisma as any),
+  adapter: DrizzleAdapter(db, {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
+  }),
   session: { strategy: "jwt" },
   debug: process.env.NODE_ENV !== "production",
   // basePath MUST equal the full path prefix before the action segment.
@@ -77,8 +84,12 @@ const config: NextAuthConfig = {
       // New user registered via any provider — create their Inbox project
       if (user.id) {
         try {
-          await prisma.project.create({
-            data: { name: "Inbox", color: "#6366f1", userId: user.id, isInbox: true },
+          await db.insert(projects).values({
+            id: createId(),
+            name: "Inbox",
+            color: "#6366f1",
+            userId: user.id,
+            isInbox: true,
           });
         } catch (e) {
           console.error("[auth] Error creating inbox for new user:", e);
@@ -95,12 +106,18 @@ const config: NextAuthConfig = {
       // Existing user linked a new OAuth account — ensure Inbox exists
       if (user.id) {
         try {
-          const inbox = await prisma.project.findFirst({
-            where: { userId: user.id, isInbox: true },
-          });
+          const [inbox] = await db
+            .select()
+            .from(projects)
+            .where(and(eq(projects.userId, user.id), eq(projects.isInbox, true)))
+            .limit(1);
           if (!inbox) {
-            await prisma.project.create({
-              data: { name: "Inbox", color: "#6366f1", userId: user.id, isInbox: true },
+            await db.insert(projects).values({
+              id: createId(),
+              name: "Inbox",
+              color: "#6366f1",
+              userId: user.id,
+              isInbox: true,
             });
           }
         } catch (e) {
@@ -264,9 +281,11 @@ const config: NextAuthConfig = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
-        });
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, credentials.email as string))
+          .limit(1);
         if (!user || !user.password) return null;
         const valid = await bcrypt.compare(
           credentials.password as string,
@@ -318,9 +337,10 @@ const config: NextAuthConfig = {
             const expiresAt = account.expires_at
               ? new Date((account.expires_at as number) * 1000)
               : null;
-            await prisma.microsoftConnection.upsert({
-              where: { userId },
-              create: {
+            await db
+              .insert(microsoftConnections)
+              .values({
+                id: createId(),
                 userId,
                 microsoftId: account.providerAccountId,
                 email: user?.email ?? null,
@@ -330,17 +350,19 @@ const config: NextAuthConfig = {
                 expiresAt,
                 scopes: (account.scope as string | null) ?? null,
                 accountType: "personal",
-              },
-              update: {
-                microsoftId: account.providerAccountId,
-                email: user?.email ?? null,
-                displayName: user?.name ?? null,
-                accessToken: account.access_token,
-                refreshToken: (account.refresh_token as string | null) ?? undefined,
-                expiresAt,
-                scopes: (account.scope as string | null) ?? null,
-              },
-            });
+              })
+              .onConflictDoUpdate({
+                target: microsoftConnections.userId,
+                set: {
+                  microsoftId: account.providerAccountId,
+                  email: user?.email ?? null,
+                  displayName: user?.name ?? null,
+                  accessToken: account.access_token,
+                  refreshToken: (account.refresh_token as string | null) ?? null,
+                  expiresAt,
+                  scopes: (account.scope as string | null) ?? null,
+                },
+              });
             authLog("MS_CONNECTION_SAVED", { userId, provider: "microsoft-entra-id" });
           } catch (e) {
             console.error("[auth] Error saving MicrosoftConnection in JWT callback:", e);

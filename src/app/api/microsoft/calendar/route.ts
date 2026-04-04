@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, calendarEvents, tasks } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 import {
-  getValidAccessToken,
   fetchCalendarEvents,
   createCalendarEvent,
-  updateCalendarEvent,
   deleteCalendarEvent,
 } from "@/lib/microsoft-graph";
 
@@ -32,9 +33,10 @@ export async function GET(req: NextRequest) {
     ? new Date(endDateStr)
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const connection = await db.select().from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1)
+    .then(r => r[0]);
 
   if (!connection) {
     return NextResponse.json({ error: "Microsoft not connected" }, { status: 400 });
@@ -48,12 +50,24 @@ export async function GET(req: NextRequest) {
     const startDateTime = new Date(event.start.dateTime);
     const endDateTime = new Date(event.end.dateTime);
 
-    await prisma.calendarEvent.upsert({
-      where: { microsoftId: event.id },
-      create: {
-        connectionId: connection.id,
-        userId: session.user.id,
-        microsoftId: event.id,
+    await db.insert(calendarEvents).values({
+      id: createId(),
+      connectionId: connection.id,
+      userId: session.user.id,
+      microsoftId: event.id,
+      subject: event.subject,
+      bodyPreview: event.bodyPreview,
+      startDateTime,
+      endDateTime,
+      isAllDay: event.isAllDay,
+      location: event.location?.displayName ?? null,
+      organizerEmail: event.organizer?.emailAddress.address ?? null,
+      webLink: event.webLink,
+      isRecurring: !!event.recurrence,
+      recurrencePattern: event.recurrence ? JSON.stringify(event.recurrence) : null,
+    }).onConflictDoUpdate({
+      target: calendarEvents.microsoftId,
+      set: {
         subject: event.subject,
         bodyPreview: event.bodyPreview,
         startDateTime,
@@ -63,33 +77,16 @@ export async function GET(req: NextRequest) {
         organizerEmail: event.organizer?.emailAddress.address ?? null,
         webLink: event.webLink,
         isRecurring: !!event.recurrence,
-        recurrencePattern: event.recurrence
-          ? JSON.stringify(event.recurrence)
-          : null,
-      },
-      update: {
-        subject: event.subject,
-        bodyPreview: event.bodyPreview,
-        startDateTime,
-        endDateTime,
-        isAllDay: event.isAllDay,
-        location: event.location?.displayName ?? null,
-        organizerEmail: event.organizer?.emailAddress.address ?? null,
-        webLink: event.webLink,
-        isRecurring: !!event.recurrence,
-        recurrencePattern: event.recurrence
-          ? JSON.stringify(event.recurrence)
-          : null,
+        recurrencePattern: event.recurrence ? JSON.stringify(event.recurrence) : null,
         lastSyncedAt: new Date(),
       },
     }).catch(() => {});
   }
 
   // Update last sync time
-  await prisma.microsoftConnection.update({
-    where: { userId: session.user.id },
-    data: { lastCalendarSyncAt: new Date() },
-  });
+  await db.update(microsoftConnections)
+    .set({ lastCalendarSyncAt: new Date() })
+    .where(eq(microsoftConnections.userId, session.user.id));
 
   return NextResponse.json({
     events,
@@ -120,9 +117,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Verify task belongs to user
-  const task = await prisma.task.findFirst({
-    where: { id: taskId, userId: session.user.id },
-  });
+  const task = await db.select().from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, session.user.id)))
+    .limit(1)
+    .then(r => r[0]);
 
   if (!task) {
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
@@ -146,32 +144,32 @@ export async function POST(req: NextRequest) {
   }
 
   // Get connection for database record
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const connection = await db.select().from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1)
+    .then(r => r[0]);
 
   if (!connection) {
     return NextResponse.json({ error: "Microsoft not connected" }, { status: 400 });
   }
 
   // Store event in database and link to task
-  const calendarEvent = await prisma.calendarEvent.create({
-    data: {
-      connectionId: connection.id,
-      userId: session.user.id,
-      microsoftId: event.id,
-      subject: event.subject,
-      bodyPreview: event.bodyPreview,
-      startDateTime: new Date(event.start.dateTime),
-      endDateTime: new Date(event.end.dateTime),
-      isAllDay: event.isAllDay,
-      location: event.location?.displayName ?? null,
-      organizerEmail: event.organizer?.emailAddress.address ?? null,
-      webLink: event.webLink,
-      linkedTaskId: taskId,
-      syncDirection: "toCalendar",
-    },
-  });
+  const [calendarEvent] = await db.insert(calendarEvents).values({
+    id: createId(),
+    connectionId: connection.id,
+    userId: session.user.id,
+    microsoftId: event.id,
+    subject: event.subject,
+    bodyPreview: event.bodyPreview,
+    startDateTime: new Date(event.start.dateTime),
+    endDateTime: new Date(event.end.dateTime),
+    isAllDay: event.isAllDay,
+    location: event.location?.displayName ?? null,
+    organizerEmail: event.organizer?.emailAddress.address ?? null,
+    webLink: event.webLink,
+    linkedTaskId: taskId,
+    syncDirection: "toCalendar",
+  }).returning();
 
   return NextResponse.json({
     success: true,
@@ -201,9 +199,9 @@ export async function DELETE(req: NextRequest) {
   const deleted = await deleteCalendarEvent(session.user.id, eventId);
 
   // Delete from database
-  await prisma.calendarEvent.deleteMany({
-    where: { userId: session.user.id, microsoftId: eventId },
-  }).catch(() => {});
+  await db.delete(calendarEvents)
+    .where(and(eq(calendarEvents.userId, session.user.id), eq(calendarEvents.microsoftId, eventId)))
+    .catch(() => {});
 
   return NextResponse.json({ success: deleted });
 }

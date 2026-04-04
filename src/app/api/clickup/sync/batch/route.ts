@@ -13,7 +13,9 @@
  */
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpReports, clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import {
   ClickUpClient,
   normalizeTask,
@@ -62,9 +64,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Verify all workspace connections belong to the current user
-  const workspaceConns = await prisma.clickUpWorkspaceConnection.findMany({
-    where: { id: { in: ids }, userId: session.user.id, isActive: true },
-    include: { connection: true },
+  const workspaceConns = await db.query.clickUpWorkspaceConnections.findMany({
+    where: (w, { inArray, and, eq }) =>
+      and(inArray(w.id, ids), eq(w.userId, session.user.id!), eq(w.isActive, true)),
+    with: { connection: true },
   });
 
   if (workspaceConns.length === 0) {
@@ -121,8 +124,9 @@ export async function POST(req: NextRequest) {
             stats
           );
 
-          const report = await prisma.clickUpReport.create({
-            data: {
+          const [report] = await db
+            .insert(clickUpReports)
+            .values({
               connectionId: wsConn.connectionId,
               workspaceId: wsConn.teamId,
               workspaceName: wsConn.teamName,
@@ -134,13 +138,13 @@ export async function POST(req: NextRequest) {
               analysis,
               taskCount: stats.total,
               overdueCount: stats.overdue,
-            },
-          });
+            })
+            .returning();
 
-          await prisma.clickUpWorkspaceConnection.update({
-            where: { id: wsConn.id },
-            data: { lastSyncedAt: new Date() },
-          });
+          await db
+            .update(clickUpWorkspaceConnections)
+            .set({ lastSyncedAt: new Date() })
+            .where(eq(clickUpWorkspaceConnections.id, wsConn.id));
 
           totalReports++;
           totalTasks += stats.total;

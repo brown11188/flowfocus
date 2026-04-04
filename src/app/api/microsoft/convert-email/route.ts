@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, emailTasks, tasks, projects } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 import { fetchEmailById } from "@/lib/microsoft-graph";
 
 export const dynamic = "force-dynamic";
@@ -35,13 +38,13 @@ export async function POST(req: NextRequest) {
   let emailData = null;
 
   if (emailId) {
-    emailTask = await prisma.emailTask.findFirst({
-      where: { id: emailId, userId: session.user.id },
-    });
+    emailTask = await db.select().from(emailTasks)
+      .where(and(eq(emailTasks.id, emailId), eq(emailTasks.userId, session.user.id)))
+      .limit(1).then(r => r[0] ?? null);
   } else if (microsoftId) {
-    emailTask = await prisma.emailTask.findFirst({
-      where: { microsoftId, userId: session.user.id },
-    });
+    emailTask = await db.select().from(emailTasks)
+      .where(and(eq(emailTasks.microsoftId, microsoftId), eq(emailTasks.userId, session.user.id)))
+      .limit(1).then(r => r[0] ?? null);
   }
 
   if (emailTask) {
@@ -56,20 +59,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email not found" }, { status: 404 });
   }
 
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const connection = await db.select().from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id)).limit(1).then(r => r[0] ?? null);
 
   if (!connection) {
     return NextResponse.json({ error: "Microsoft not connected" }, { status: 400 });
   }
 
   // Get user's projects for AI context
-  const projects = await prisma.project.findMany({
-    where: { userId: session.user.id },
-    select: { id: true, name: true },
-    take: 20,
-  });
+  const projectsList = await db.select({ id: projects.id, name: projects.name })
+    .from(projects).where(eq(projects.userId, session.user.id)).limit(20);
 
   const subject = emailData?.subject ?? emailTask?.subject ?? "Untitled Task";
   const bodyContent = emailData?.bodyContent ?? emailTask?.preview ?? "";
@@ -95,7 +94,7 @@ export async function POST(req: NextRequest) {
         bodyContent,
         fromEmail,
         fromName,
-        projects.map((p) => p.name)
+        projectsList.map((p) => p.name)
       );
     } catch (error) {
       console.error("[Microsoft] AI analysis failed:", error);
@@ -111,58 +110,49 @@ export async function POST(req: NextRequest) {
   // Find or use project
   let taskProjectId = projectId;
   if (!taskProjectId && analysis.suggestedProject) {
-    const matchedProject = projects.find(
+    const matchedProject = projectsList.find(
       (p) => p.name.toLowerCase() === analysis.suggestedProject?.toLowerCase()
     );
     if (matchedProject) taskProjectId = matchedProject.id;
   }
 
-  // Create task
-  const task = await prisma.task.create({
-    data: {
-      title: taskTitle,
-      notes: `**From:** ${fromName} <${fromEmail}>\n**Subject:** ${subject}\n\n${analysis.summary}\n\n**Action Items:**\n${analysis.actionItems.map((a) => `- ${a}`).join("\\n")}\n\n---\n${bodyContent.slice(0, 2000)}`,
-      priority: taskPriority,
-      dueDate: taskDueDate,
-      projectId: taskProjectId,
-      userId: session.user.id,
-    },
-    include: { project: true },
-  });
+  const [task] = await db.insert(tasks).values({
+    id: createId(),
+    title: taskTitle,
+    notes: `**From:** ${fromName} <${fromEmail}>\n**Subject:** ${subject}\n\n${analysis.summary}\n\n**Action Items:**\n${analysis.actionItems.map((a) => `- ${a}`).join("\\n")}\n\n---\n${bodyContent.slice(0, 2000)}`,
+    priority: taskPriority,
+    dueDate: taskDueDate,
+    projectId: taskProjectId,
+    userId: session.user.id,
+  }).returning();
 
-  // Update email task status
   if (emailTask) {
-    await prisma.emailTask.update({
-      where: { id: emailTask.id },
-      data: {
-        status: "converted",
-        convertedTaskId: task.id,
-        convertedAt: new Date(),
-        aiSummary: analysis.summary,
-        suggestedPriority: analysis.suggestedPriority,
-        suggestedDueDate: analysis.suggestedDueDate ? new Date(analysis.suggestedDueDate) : null,
-      },
-    });
+    await db.update(emailTasks).set({
+      status: "converted",
+      convertedTaskId: task.id,
+      convertedAt: new Date(),
+      aiSummary: analysis.summary,
+      suggestedPriority: analysis.suggestedPriority,
+      suggestedDueDate: analysis.suggestedDueDate ? new Date(analysis.suggestedDueDate) : null,
+    }).where(eq(emailTasks.id, emailTask.id));
   } else if (microsoftId) {
-    // Create email task record if it didn't exist
-    await prisma.emailTask.create({
-      data: {
-        connectionId: connection.id,
-        userId: session.user.id,
-        microsoftId,
-        subject,
-        fromEmail,
-        fromName,
-        receivedAt: emailData?.receivedDateTime ?? new Date(),
-        preview: bodyContent.slice(0, 500),
-        webLink: emailData?.webLink,
-        status: "converted",
-        convertedTaskId: task.id,
-        convertedAt: new Date(),
-        aiSummary: analysis.summary,
-        suggestedPriority: analysis.suggestedPriority,
-        suggestedDueDate: analysis.suggestedDueDate ? new Date(analysis.suggestedDueDate) : null,
-      },
+    await db.insert(emailTasks).values({
+      id: createId(),
+      connectionId: connection!.id,
+      userId: session.user.id,
+      microsoftId,
+      subject,
+      fromEmail,
+      fromName,
+      receivedAt: emailData?.receivedDateTime ?? new Date(),
+      preview: bodyContent.slice(0, 500),
+      webLink: emailData?.webLink ?? null,
+      status: "converted",
+      convertedTaskId: task.id,
+      convertedAt: new Date(),
+      aiSummary: analysis.summary,
+      suggestedPriority: analysis.suggestedPriority,
+      suggestedDueDate: analysis.suggestedDueDate ? new Date(analysis.suggestedDueDate) : null,
     });
   }
 

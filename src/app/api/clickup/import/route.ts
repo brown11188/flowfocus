@@ -10,7 +10,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpWorkspaceConnections, projects, tasks } from "@/lib/db/schema";
+import { eq, and, isNotNull } from "drizzle-orm";
 import { ClickUpClient } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -58,10 +60,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "workspaceConnectionId is required" }, { status: 400 });
   }
 
-  // Get the workspace connection
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id: body.workspaceConnectionId },
-    include: { connection: true },
+  // Get the workspace connection with its parent connection (for the access token)
+  const workspaceConn = await db.query.clickUpWorkspaceConnections.findFirst({
+    where: (w, { eq }) => eq(w.id, body.workspaceConnectionId!),
+    with: { connection: true },
   });
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
@@ -105,9 +107,11 @@ export async function POST(req: NextRequest) {
     let colorIndex = 0;
 
     for (const [spaceId, space] of spaceMap.entries()) {
-      const existing = await prisma.project.findFirst({
-        where: { userId: session.user.id, clickupSpaceId: spaceId },
-        select: { id: true },
+      const existing = await db.query.projects.findFirst({
+        where: (p, { and, eq }) => and(
+          eq(p.userId, session.user.id),
+          eq(p.clickupSpaceId, spaceId)
+        ),
       });
 
       if (existing) {
@@ -116,8 +120,9 @@ export async function POST(req: NextRequest) {
       } else {
         const color = SPACE_COLORS[colorIndex % SPACE_COLORS.length];
         colorIndex++;
-        const created = await prisma.project.create({
-          data: {
+        const [created] = await db
+          .insert(projects)
+          .values({
             name: space.name,
             color,
             userId: session.user.id,
@@ -126,8 +131,8 @@ export async function POST(req: NextRequest) {
             clickupSpaceName: space.name,
             clickupTeamId: workspaceConn.teamId,
             clickupWorkspaceConnectionId: workspaceConn.id,
-          },
-        });
+          })
+          .returning();
         projectBySpaceId.set(spaceId, created.id);
         projectsCreated++;
       }
@@ -135,10 +140,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Load existing clickupTaskIds for this user
-    const existingTasks = await prisma.task.findMany({
-      where: { userId: session.user.id, clickupTaskId: { not: null } },
-      select: { id: true, clickupTaskId: true, notes: true },
-    });
+    const existingTasks = await db
+      .select({ id: tasks.id, clickupTaskId: tasks.clickupTaskId, notes: tasks.notes })
+      .from(tasks)
+      .where(and(eq(tasks.userId, session.user.id), isNotNull(tasks.clickupTaskId)));
     const existingMap = new Map(existingTasks.map((t) => [t.clickupTaskId!, t]));
 
     const now = new Date();
@@ -173,9 +178,9 @@ export async function POST(req: NextRequest) {
         const existing = existingMap.get(raw.id);
 
         if (existing) {
-          await prisma.task.update({
-            where: { id: existing.id },
-            data: {
+          await db
+            .update(tasks)
+            .set({
               title,
               dueDate,
               priority,
@@ -186,29 +191,27 @@ export async function POST(req: NextRequest) {
               clickupAssignees: assigneesJson,
               clickupUrl: raw.url ?? null,
               importedAt: now,
-            },
-          });
+            })
+            .where(eq(tasks.id, existing.id));
           updatedCount++;
         } else {
-          await prisma.task.create({
-            data: {
-              title,
-              notes: raw.description ?? null,
-              dueDate,
-              priority,
-              status: ffStatus,
-              completed: isCompleted,
-              completedAt: isCompleted ? now : null,
-              userId: session.user.id,
-              projectId,
-              clickupTaskId: raw.id,
-              clickupListId: raw.list?.id ?? null,
-              clickupSpaceId: spaceId,
-              clickupUrl: raw.url ?? null,
-              clickupStatus: raw.status?.status ?? null,
-              clickupAssignees: assigneesJson,
-              importedAt: now,
-            },
+          await db.insert(tasks).values({
+            title,
+            notes: raw.description ?? null,
+            dueDate,
+            priority,
+            status: ffStatus,
+            completed: isCompleted,
+            completedAt: isCompleted ? now : null,
+            userId: session.user.id,
+            projectId,
+            clickupTaskId: raw.id,
+            clickupListId: raw.list?.id ?? null,
+            clickupSpaceId: spaceId,
+            clickupUrl: raw.url ?? null,
+            clickupStatus: raw.status?.status ?? null,
+            clickupAssignees: assigneesJson,
+            importedAt: now,
           });
           importedCount++;
         }
@@ -220,10 +223,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Update lastSyncedAt
-    await prisma.clickUpWorkspaceConnection.update({
-      where: { id: workspaceConn.id },
-      data: { lastSyncedAt: now },
-    });
+    await db
+      .update(clickUpWorkspaceConnections)
+      .set({ lastSyncedAt: now })
+      .where(eq(clickUpWorkspaceConnections.id, workspaceConn.id));
 
     return NextResponse.json({
       importedCount,
@@ -242,3 +245,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

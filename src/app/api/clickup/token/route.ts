@@ -2,14 +2,16 @@
  * POST /api/clickup/token
  * Save a Personal API Token and create workspace connection(s).
  * Body: { token: string; workspaces: { id: string; name: string }[] }
- * 
+ *
  * This creates:
  *  - ClickUpConnection (holds the token)
  *  - ClickUpWorkspaceConnection for each selected workspace
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpConnections, clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -33,39 +35,45 @@ export async function POST(req: NextRequest) {
 
   try {
     // Upsert the main connection (holds the token)
-    const connection = await prisma.clickUpConnection.upsert({
-      where: { userId: session.user.id },
-      create: {
+    const [connection] = await db
+      .insert(clickUpConnections)
+      .values({
         userId: session.user.id,
         accessToken: token,
         tokenType: "Bearer",
-      },
-      update: {
-        accessToken: token,
-        tokenType: "Bearer",
-        updatedAt: new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: clickUpConnections.userId,
+        set: {
+          accessToken: token,
+          tokenType: "Bearer",
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
 
     // Create workspace connections for each selected workspace
     const createdWorkspaces = [];
     for (const ws of workspaces) {
-      const workspaceConn = await prisma.clickUpWorkspaceConnection.upsert({
-        where: { userId_teamId: { userId: session.user.id, teamId: ws.id } },
-        create: {
+      const [workspaceConn] = await db
+        .insert(clickUpWorkspaceConnections)
+        .values({
           connectionId: connection.id,
           userId: session.user.id,
           teamId: ws.id,
           teamName: ws.name,
           isActive: true,
           syncEnabled: true,
-        },
-        update: {
-          teamName: ws.name,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [clickUpWorkspaceConnections.userId, clickUpWorkspaceConnections.teamId],
+          set: {
+            teamName: ws.name,
+            isActive: true,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
       createdWorkspaces.push({ id: workspaceConn.id, teamId: ws.id, name: ws.name });
     }
 

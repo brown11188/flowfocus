@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { actionedEmails } from "@/lib/db/schema";
+import { eq, and, desc } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 
 export const dynamic = "force-dynamic";
 
@@ -25,19 +28,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Upsert — idempotent (marking same email twice is fine)
-    await (prisma as any).actionedEmail.upsert({
-      where: {
-        userId_microsoftEmailId: {
-          userId: session.user.id,
-          microsoftEmailId,
-        },
-      },
-      update: { actionedAt: new Date() },
-      create: {
-        userId: session.user.id,
-        microsoftEmailId,
-        subject,
-      },
+    await db.insert(actionedEmails).values({
+      id: createId(),
+      userId: session.user.id,
+      microsoftEmailId,
+      subject,
+    }).onConflictDoUpdate({
+      target: [actionedEmails.userId, actionedEmails.microsoftEmailId],
+      set: { actionedAt: new Date() },
     });
 
     return NextResponse.json({ success: true });
@@ -66,12 +64,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "microsoftEmailId is required" }, { status: 400 });
     }
 
-    await (prisma as any).actionedEmail.deleteMany({
-      where: {
-        userId: session.user.id,
-        microsoftEmailId,
-      },
-    });
+    await db.delete(actionedEmails).where(
+      and(eq(actionedEmails.userId, session.user.id), eq(actionedEmails.microsoftEmailId, microsoftEmailId))
+    );
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -92,11 +87,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const actioned = await (prisma as any).actionedEmail.findMany({
-      where: { userId: session.user.id },
-      select: { microsoftEmailId: true, subject: true, actionedAt: true },
-      orderBy: { actionedAt: "desc" },
-    });
+    const actioned = await db.select({
+      microsoftEmailId: actionedEmails.microsoftEmailId,
+      subject: actionedEmails.subject,
+      actionedAt: actionedEmails.actionedAt,
+    }).from(actionedEmails)
+      .where(eq(actionedEmails.userId, session.user.id))
+      .orderBy(desc(actionedEmails.actionedAt));
 
     return NextResponse.json({ actioned });
   } catch (err) {

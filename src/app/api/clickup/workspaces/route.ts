@@ -8,7 +8,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpConnections, clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import { ClickUpClient } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +26,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connection = await prisma.clickUpConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const [connection] = await db
+    .select()
+    .from(clickUpConnections)
+    .where(eq(clickUpConnections.userId, session.user.id))
+    .limit(1);
 
   if (!connection) {
     return NextResponse.json({ error: "No ClickUp connection" }, { status: 404 });
@@ -43,10 +47,10 @@ export async function GET(req: NextRequest) {
     const workspaces = await client.getWorkspaces();
 
     // Get current workspace connections
-    const existingConnections = await prisma.clickUpWorkspaceConnection.findMany({
-      where: { userId: session.user.id },
-      select: { teamId: true, isActive: true },
-    });
+    const existingConnections = await db
+      .select({ teamId: clickUpWorkspaceConnections.teamId, isActive: clickUpWorkspaceConnections.isActive })
+      .from(clickUpWorkspaceConnections)
+      .where(eq(clickUpWorkspaceConnections.userId, session.user.id));
 
     const connectedTeamIds = new Set(existingConnections.map((c) => c.teamId));
 
@@ -81,9 +85,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connection = await prisma.clickUpConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const [connection] = await db
+    .select()
+    .from(clickUpConnections)
+    .where(eq(clickUpConnections.userId, session.user.id))
+    .limit(1);
 
   if (!connection) {
     return NextResponse.json({ error: "No ClickUp connection" }, { status: 404 });
@@ -98,32 +104,40 @@ export async function POST(req: NextRequest) {
 
   try {
     // Check if already exists
-    const existing = await prisma.clickUpWorkspaceConnection.findUnique({
-      where: { userId_teamId: { userId: session.user.id, teamId: body.teamId } },
-    });
+    const [existing] = await db
+      .select()
+      .from(clickUpWorkspaceConnections)
+      .where(
+        and(
+          eq(clickUpWorkspaceConnections.userId, session.user.id),
+          eq(clickUpWorkspaceConnections.teamId, body.teamId)
+        )
+      )
+      .limit(1);
 
     if (existing) {
       // Reactivate if inactive
       if (!existing.isActive) {
-        await prisma.clickUpWorkspaceConnection.update({
-          where: { id: existing.id },
-          data: { isActive: true },
-        });
+        await db
+          .update(clickUpWorkspaceConnections)
+          .set({ isActive: true })
+          .where(eq(clickUpWorkspaceConnections.id, existing.id));
       }
       return NextResponse.json({ success: true, workspace: existing });
     }
 
     // Create new workspace connection
-    const workspaceConn = await prisma.clickUpWorkspaceConnection.create({
-      data: {
+    const [workspaceConn] = await db
+      .insert(clickUpWorkspaceConnections)
+      .values({
         connectionId: connection.id,
         userId: session.user.id,
         teamId: body.teamId,
         teamName: body.teamName,
         isActive: true,
         syncEnabled: true,
-      },
-    });
+      })
+      .returning();
 
     return NextResponse.json({ success: true, workspace: workspaceConn });
   } catch (err) {
@@ -152,19 +166,21 @@ export async function DELETE(req: NextRequest) {
 
   try {
     // Verify ownership
-    const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-      where: { id: body.workspaceConnectionId },
-    });
+    const [workspaceConn] = await db
+      .select()
+      .from(clickUpWorkspaceConnections)
+      .where(eq(clickUpWorkspaceConnections.id, body.workspaceConnectionId))
+      .limit(1);
 
     if (!workspaceConn || workspaceConn.userId !== session.user.id) {
       return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
     }
 
     // Soft delete (deactivate)
-    await prisma.clickUpWorkspaceConnection.update({
-      where: { id: body.workspaceConnectionId },
-      data: { isActive: false },
-    });
+    await db
+      .update(clickUpWorkspaceConnections)
+      .set({ isActive: false })
+      .where(eq(clickUpWorkspaceConnections.id, body.workspaceConnectionId));
 
     return NextResponse.json({ success: true });
   } catch (err) {

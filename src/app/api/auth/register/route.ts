@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { users, projects } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,20 +18,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (existing) {
       return NextResponse.json({ error: "Email already in use" }, { status: 400 });
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({
-      data: { name, email, password: hashed },
-    });
+    const [user] = await db.insert(users).values({ name, email, password: hashed }).returning();
 
     // Create default Inbox project
-    await prisma.project.create({
-      data: { name: "Inbox", color: "#6366f1", userId: user.id, isInbox: true },
-    });
+    await db.insert(projects).values({ name: "Inbox", color: "#6366f1", userId: user.id, isInbox: true });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -39,3 +37,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
