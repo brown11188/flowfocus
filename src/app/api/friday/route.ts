@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { tasks, projects } from "@/lib/db/schema";
+import { eq, and, lt, lte, gt, gte, count } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -81,38 +83,42 @@ async function buildUserContext(userId: string) {
   const todayEnd = new Date(now);   todayEnd.setHours(23, 59, 59, 999);
   const weekEnd = new Date(now);    weekEnd.setDate(now.getDate() + 7);
 
-  const [allTasks, projects, overdueTasks, todayTasks, upcomingTasks] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false },
-      include: { project: true },
-      orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
-      take: 60,
+  const [allTasks, projectList, overdueTasks, todayTasks, upcomingTasks] = await Promise.all([
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false)),
+      with: { project: true },
+      orderBy: (t, { asc }) => [asc(t.priority), asc(t.dueDate)],
+      limit: 60,
     }),
-    prisma.project.findMany({ where: { userId }, orderBy: { sortOrder: "asc" } }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { lt: todayStart } },
-      include: { project: true },
-      take: 20,
+    db.query.projects.findMany({
+      where: (t, { eq: e }) => e(t.userId, userId),
+      orderBy: (t, { asc }) => [asc(t.sortOrder)],
     }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gte: todayStart, lte: todayEnd } },
-      include: { project: true },
-      take: 20,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, lt: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), l(t.dueDate, todayStart)),
+      with: { project: true },
+      limit: 20,
     }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gt: todayEnd, lte: weekEnd } },
-      include: { project: true },
-      take: 20,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, gte: g, lte: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), g(t.dueDate, todayStart), l(t.dueDate, todayEnd)),
+      with: { project: true },
+      limit: 20,
+    }),
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, gt: g, lte: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), g(t.dueDate, todayEnd), l(t.dueDate, weekEnd)),
+      with: { project: true },
+      limit: 20,
     }),
   ]);
 
-  const completedThisWeek = await prisma.task.count({
-    where: { userId, completed: true, completedAt: { gte: new Date(now.getTime() - 7 * 86400000) } },
-  });
+  const [{ count: completedCount }] = await db.select({ count: count() }).from(tasks).where(
+    and(eq(tasks.userId, userId), eq(tasks.completed, true), gte(tasks.completedAt, new Date(now.getTime() - 7 * 86400000)))
+  );
+  const completedThisWeek = Number(completedCount);
 
   return {
     allTasks,
-    projects,
+    projects: projectList,
     overdueTasks,
     todayTasks,
     upcomingTasks,
@@ -219,16 +225,14 @@ async function executeAction(
         if (inbox) projectId = inbox.id;
       }
 
-      const task = await prisma.task.create({
-        data: {
-          title: p.title,
-          priority: Math.min(4, Math.max(1, p.priority ?? 4)) as 1 | 2 | 3 | 4,
-          dueDate: p.dueDateISO ? new Date(p.dueDateISO) : null,
-          notes: p.notes ?? null,
-          projectId,
-          userId,
-        },
-      });
+      const [task] = await db.insert(tasks).values({
+        title: p.title,
+        priority: Math.min(4, Math.max(1, p.priority ?? 4)),
+        dueDate: p.dueDateISO ? new Date(p.dueDateISO) : null,
+        notes: p.notes ?? null,
+        projectId,
+        userId,
+      }).returning({ id: tasks.id, title: tasks.title });
       return { createdTask: { id: task.id, title: task.title } };
     }
 
@@ -280,10 +284,7 @@ async function executeAction(
         );
       }
       if (task) {
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { completed: true, completedAt: new Date() },
-        });
+        await db.update(tasks).set({ completed: true, completedAt: new Date() }).where(eq(tasks.id, task.id));
       }
       return {};
     }
@@ -301,10 +302,7 @@ async function executeAction(
           t.title.toLowerCase().includes(p.titleKeyword!.toLowerCase())
         );
       if (task && p.newDueDateISO) {
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { dueDate: new Date(p.newDueDateISO) },
-        });
+        await db.update(tasks).set({ dueDate: new Date(p.newDueDateISO) }).where(eq(tasks.id, task.id));
       }
       return {};
     }

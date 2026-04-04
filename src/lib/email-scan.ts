@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, emailDigests, emailScanRules, actionedEmails } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import { fetchRecentEmails } from "@/lib/microsoft-graph";
 
 const DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai";
@@ -370,48 +372,39 @@ export function buildFallbackSummary(
 export async function runEmailScan(userId: string, userTimezone?: string): Promise<void> {
   const tz = userTimezone ?? EMAIL_SCAN_DEFAULT_TIMEZONE;
   
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId },
+  const connection = await db.query.microsoftConnections.findFirst({
+    where: (t, { eq: e }) => e(t.userId, userId),
   });
   if (!connection) throw new Error("Microsoft not connected");
 
   const today = getLocalDateKey(new Date(), tz);
 
-  let digest = await prisma.emailDigest.findFirst({
-    where: { userId, scanDate: today },
-    orderBy: { createdAt: "desc" },
+  let digest = await db.query.emailDigests.findFirst({
+    where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.scanDate, today)),
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
 
   if (!digest) {
-    digest = await prisma.emailDigest.create({
-      data: {
-        userId,
-        connectionId: connection.id,
-        scanDate: today,
-        status: "running",
-        startedAt: new Date(),
-      },
-    });
+    const [created] = await db.insert(emailDigests).values({
+      userId,
+      connectionId: connection.id,
+      scanDate: today,
+      status: "running",
+      startedAt: new Date(),
+    }).returning();
+    digest = created;
   } else {
-    await prisma.emailDigest.update({
-      where: { id: digest.id },
-      data: { status: "running", startedAt: new Date(), errorMessage: null },
-    });
+    await db.update(emailDigests).set({ status: "running", startedAt: new Date(), errorMessage: null }).where(eq(emailDigests.id, digest.id));
   }
 
   try {
-    const rules = await prisma.emailScanRule.findMany({
-      where: { userId, isActive: true },
+    const rules = await db.query.emailScanRules.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.isActive, true)),
     });
 
     // Load actioned email IDs — these are excluded from scan results
-    const actionedRecords = await (prisma as any).actionedEmail.findMany({
-      where: { userId },
-      select: { microsoftEmailId: true },
-    });
-    const actionedIds = new Set<string>(
-      (actionedRecords as { microsoftEmailId: string }[]).map(r => r.microsoftEmailId)
-    );
+    const actionedRecords = await db.select({ microsoftEmailId: actionedEmails.microsoftEmailId }).from(actionedEmails).where(eq(actionedEmails.userId, userId));
+    const actionedIds = new Set<string>(actionedRecords.map(r => r.microsoftEmailId));
 
     const lookbackStart = getLookbackStartDate();
     const rawEmails = await fetchRecentEmails(userId, {
@@ -558,36 +551,27 @@ export async function runEmailScan(userId: string, userTimezone?: string): Promi
       ` followUp=${followUp.length} readAgain=${readAgain.length}`
     );
 
-    await (prisma.emailDigest.update as Function)({
-      where: { id: digest.id },
-      data: {
-        totalScanned: rawEmails.length,
-        clientEmailCount: clientEmails.length,
-        noReplyFiltered: noReplyFiltered + automatedFiltered,
-        missedReplyCount: missedReplies.length,
-        needsReplyCount: needsReply.length,
-        followUpCount: followUp.length,
-        readAgainCount: readAgain.length,
-        missedReplies: JSON.stringify(missedReplies.slice(0, 20)),
-        needsReply: JSON.stringify(needsReply.slice(0, 20)),
-        followUp: JSON.stringify(followUp.slice(0, 20)),
-        readAgain: JSON.stringify(readAgain.slice(0, 20)),
-        aiSummary,
-        status: "done",
-        completedAt: new Date(),
-      },
-    });
+    await db.update(emailDigests).set({
+      totalScanned: rawEmails.length,
+      clientEmailCount: clientEmails.length,
+      noReplyFiltered: noReplyFiltered + automatedFiltered,
+      missedReplyCount: missedReplies.length,
+      needsReplyCount: needsReply.length,
+      followUpCount: followUp.length,
+      readAgainCount: readAgain.length,
+      missedReplies: JSON.stringify(missedReplies.slice(0, 20)),
+      needsReply: JSON.stringify(needsReply.slice(0, 20)),
+      followUp: JSON.stringify(followUp.slice(0, 20)),
+      readAgain: JSON.stringify(readAgain.slice(0, 20)),
+      aiSummary,
+      status: "done",
+      completedAt: new Date(),
+    }).where(eq(emailDigests.id, digest.id));
 
-    await prisma.microsoftConnection.update({
-      where: { userId },
-      data: { lastEmailSyncAt: new Date() },
-    });
+    await db.update(microsoftConnections).set({ lastEmailSyncAt: new Date() }).where(eq(microsoftConnections.userId, userId));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    await prisma.emailDigest.update({
-      where: { id: digest.id },
-      data: { status: "error", errorMessage: msg, completedAt: new Date() },
-    });
+    await db.update(emailDigests).set({ status: "error", errorMessage: msg, completedAt: new Date() }).where(eq(emailDigests.id, digest.id));
     throw err;
   }
 }

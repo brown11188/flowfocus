@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -28,16 +28,16 @@ export async function POST(req: Request) {
   // Gather historical context
   const [recentTasks, openTasks] = await Promise.all([
     // Last 50 completed tasks with duration data
-    prisma.task.findMany({
-      where: { userId, completed: true, completedAt: { not: null } },
-      select: { title: true, createdAt: true, completedAt: true, estimatedHours: true, priority: true },
-      orderBy: { completedAt: "desc" },
-      take: 50,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.completed, true)),
+      columns: { title: true, createdAt: true, completedAt: true, estimatedHours: true, priority: true },
+      orderBy: (t, { desc }) => [desc(t.completedAt)],
+      limit: 50,
     }),
     // Current open tasks for workload assessment
-    prisma.task.findMany({
-      where: { userId, completed: false, isDeleted: false },
-      select: { title: true, dueDate: true, priority: true },
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.completed, false), e(t.isDeleted, false)),
+      columns: { title: true, dueDate: true, priority: true },
     }),
   ]);
 

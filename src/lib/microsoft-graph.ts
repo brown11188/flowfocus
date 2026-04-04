@@ -8,7 +8,9 @@
  * - Meeting detection
  */
 
-import { prisma } from "./prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,8 +72,8 @@ export interface GraphError {
 export async function getValidAccessToken(
   userId: string
 ): Promise<{ accessToken: string; connection: MicrosoftConnection } | null> {
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId },
+  const connection = await db.query.microsoftConnections.findFirst({
+    where: (t, { eq: e }) => e(t.userId, userId),
   });
 
   if (!connection) return null;
@@ -95,15 +97,11 @@ export async function getValidAccessToken(
     const tokenData = await refreshMicrosoftToken(connection.refreshToken);
     if (!tokenData) return null;
 
-    // Update connection with new tokens
-    const updated = await prisma.microsoftConnection.update({
-      where: { userId },
-      data: {
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token ?? connection.refreshToken,
-        expiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
-      },
-    });
+    const [updated] = await db.update(microsoftConnections).set({
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token ?? connection.refreshToken,
+      expiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
+    }).where(eq(microsoftConnections.userId, userId)).returning();
 
     return {
       accessToken: tokenData.access_token,

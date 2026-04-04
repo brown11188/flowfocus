@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 // ─── DeepInfra Adapter ───────────────────────────────────────────────────────
 // DeepInfra exposes an OpenAI-compatible chat completions endpoint.
@@ -107,15 +107,15 @@ export async function POST(_req: NextRequest) {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const tasks = await prisma.task.findMany({
-    where: {
-      userId: session.user.id,
-      isDeleted: false,
-      completed: false,
-      OR: [{ dueDate: { lte: tomorrow } }, { priority: { lte: 2 } }],
-    },
-    include: { project: true },
-    take: 20,
+  const tasks = await db.query.tasks.findMany({
+    where: (t, { eq: e, and: a, or: o, lte }) => a(
+      e(t.userId, session.user.id),
+      e(t.isDeleted, false),
+      e(t.completed, false),
+      o(lte(t.dueDate, tomorrow), lte(t.priority, 2))
+    ),
+    with: { project: true },
+    limit: 20,
   });
 
   if (tasks.length === 0) {

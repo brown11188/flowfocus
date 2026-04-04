@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -19,18 +19,19 @@ export async function POST(req: NextRequest) {
 
   // Gather related context
   const [recentTasks, recentEmails] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false },
-      select: { id: true, title: true, priority: true, dueDate: true, project: { select: { name: true } } },
-      orderBy: { priority: "asc" },
-      take: 20,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false)),
+      columns: { id: true, title: true, priority: true, dueDate: true },
+      with: { project: { columns: { name: true } } },
+      orderBy: (t, { asc }) => [asc(t.priority)],
+      limit: 20,
     }),
-    prisma.emailDigest.findMany({
-      where: { userId },
-      select: { aiSummary: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-    }).catch(() => []),
+    db.query.emailDigests.findMany({
+      where: (t, { eq: e }) => e(t.userId, userId),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+      limit: 3,
+      columns: { aiSummary: true, createdAt: true },
+    }).catch(() => [] as { aiSummary: string | null; createdAt: Date }[]),
   ]);
 
   const contextParts = [
