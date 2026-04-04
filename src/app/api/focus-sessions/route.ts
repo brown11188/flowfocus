@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { focusSessions } from "@/db/schema";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -10,18 +12,19 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const date = searchParams.get("date"); // YYYY-MM-DD
 
-  const where: Record<string, unknown> = { userId: session.user.id };
+  const conditions = [eq(focusSessions.userId, session.user.id)];
   if (date) {
     const start = new Date(date + "T00:00:00Z");
     const end = new Date(date + "T23:59:59Z");
-    where.createdAt = { gte: start, lte: end };
+    conditions.push(gte(focusSessions.createdAt, start), lte(focusSessions.createdAt, end));
   }
 
-  const sessions = await prisma.focusSession.findMany({
-    where: where as any,
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  const sessions = await db
+    .select()
+    .from(focusSessions)
+    .where(and(...conditions))
+    .orderBy(desc(focusSessions.createdAt))
+    .limit(50);
   return NextResponse.json(sessions);
 }
 
@@ -32,8 +35,9 @@ export async function POST(req: NextRequest) {
   if (!taskLabel || !plannedMins) {
     return NextResponse.json({ error: "taskLabel and plannedMins required" }, { status: 400 });
   }
-  const focusSession = await prisma.focusSession.create({
-    data: {
+  const [focusSession] = await db
+    .insert(focusSessions)
+    .values({
       userId: session.user.id,
       taskId: taskId || null,
       taskLabel,
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
       actualMins: actualMins || 0,
       wasCompleted: wasCompleted || false,
       completedAt: new Date(),
-    },
-  });
+    })
+    .returning();
   return NextResponse.json(focusSession);
 }

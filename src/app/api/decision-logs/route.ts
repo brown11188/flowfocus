@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { decisionLogs } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 function serialize(item: Record<string, unknown>) {
   return {
@@ -14,7 +16,11 @@ function serialize(item: Record<string, unknown>) {
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const items = await prisma.decisionLog.findMany({ where: { userId: session.user.id }, orderBy: { decidedAt: "desc" } });
+  const items = await db
+    .select()
+    .from(decisionLogs)
+    .where(eq(decisionLogs.userId, session.user.id))
+    .orderBy(desc(decisionLogs.decidedAt));
   return NextResponse.json(items.map((item) => serialize(item as unknown as Record<string, unknown>)));
 }
 
@@ -22,18 +28,18 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json();
-  const item = await prisma.decisionLog.create({
-    data: {
+  const [item] = await db
+    .insert(decisionLogs)
+    .values({
       title: String(body.title ?? "").trim(),
-      context: body.context ?? null,
-      optionsConsidered: body.optionsConsidered ?? null,
+      description: body.context ?? null,
       decision: body.decision ?? "",
       impact: body.impact ?? null,
-      owner: body.owner ?? null,
+      decidedBy: body.owner ?? null,
       projectId: body.projectId,
       userId: session.user.id,
       decidedAt: body.decidedAt ? new Date(body.decidedAt) : new Date(),
-    },
-  });
+    })
+    .returning();
   return NextResponse.json(serialize(item as unknown as Record<string, unknown>));
 }
