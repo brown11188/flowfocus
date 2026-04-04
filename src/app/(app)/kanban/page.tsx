@@ -547,10 +547,19 @@ export default function KanbanPage() {
       {/* ── Board area ── */}
       {!selectedProjectId ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <LayoutGrid className="w-14 h-14 text-gray-200 dark:text-gray-700 mx-auto mb-3" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">Pick a project to get started</p>
-            <p className="text-sm text-gray-400 mt-1">Your board will appear here</p>
+          <div className="text-center max-w-xs">
+            <div className="w-16 h-16 rounded-2xl bg-violet-50 dark:bg-violet-950/50 flex items-center justify-center mx-auto mb-4">
+              <LayoutGrid className="w-8 h-8 text-violet-300 dark:text-violet-700" />
+            </div>
+            <p className="text-gray-700 dark:text-gray-300 font-semibold mb-1">Pick a project to get started</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 leading-relaxed">
+              Select a project from the dropdown above to view and manage its Kanban board.
+            </p>
+            {nonInboxProjects.length === 0 && (
+              <p className="text-xs text-gray-400 mt-3">
+                No projects yet &mdash; create one from the sidebar first.
+              </p>
+            )}
           </div>
         </div>
       ) : loading ? (

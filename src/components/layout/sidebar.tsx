@@ -455,7 +455,7 @@ export function Sidebar({ user }: SidebarProps) {
           </div>
 
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-7 h-7 rounded-full bg-violet-100 dark:bg-violet-900 flex items-center justify-center text-xs font-bold text-violet-700 dark:text-violet-300">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: 'rgb(139 92 246 / 0.15)', color: 'rgb(139 92 246)' }}>
               {user.name?.[0]?.toUpperCase() || "U"}
             </div>
             <div className="flex-1 min-w-0">

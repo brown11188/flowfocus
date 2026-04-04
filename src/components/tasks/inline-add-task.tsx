@@ -1,9 +1,9 @@
 "use client";
 import { useState, useRef } from "react";
 import { useTaskStore } from "@/store/task-store";
-import { Plus, X } from "lucide-react";
+import { Plus, X, Flag } from "lucide-react";
 import { toast } from "sonner";
-import { PRIORITY_CONFIG } from "@/lib/utils";
+import { PRIORITY_CONFIG, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 
 interface InlineAddTaskProps {
@@ -78,12 +78,31 @@ export function InlineAddTask({ defaultDate, defaultProjectId, onAdd }: InlineAd
         onKeyDown={e => e.key === "Escape" && setIsOpen(false)}
       />
       <div className="flex items-center justify-between">
-        <select
-          value={priority} onChange={e => setPriority(Number(e.target.value) as 1|2|3|4)}
-          className="text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 dark:text-white focus:outline-none"
-        >
-          {[1,2,3,4].map(p => <option key={p} value={p}>P{p} – {PRIORITY_CONFIG[p as keyof typeof PRIORITY_CONFIG].label}</option>)}
-        </select>
+        <div className="flex items-center gap-1">
+          {([1, 2, 3, 4] as const).map(p => {
+            const cfg = PRIORITY_CONFIG[p];
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPriority(p)}
+                title={cfg.label}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-all",
+                  priority === p
+                    ? cn(cfg.color, cfg.border, cfg.bg, "shadow-sm")
+                    : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 opacity-50 hover:opacity-100"
+                )}
+              >
+                <Flag className={cn("w-3 h-3", cfg.color)} />
+                <span className={cn(
+                  "hidden sm:inline",
+                  priority === p ? cfg.color : "text-gray-400"
+                )}>P{p}</span>
+              </button>
+            );
+          })}
+        </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setIsOpen(false)} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="w-4 h-4" />

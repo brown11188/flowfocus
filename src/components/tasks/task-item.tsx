@@ -42,10 +42,13 @@ export function TaskItem({ task, onComplete, onEdit, onDelete, draggable = false
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         className={cn(
-          "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors",
+          "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative",
           task.completed && "opacity-50",
           isDragging && "opacity-30 bg-violet-50 dark:bg-violet-950",
-          isBlocked && !task.completed && "border-l-2 border-amber-400"
+          isBlocked && !task.completed && "border-l-2 border-amber-400",
+          !isBlocked && !task.completed && task.priority === 1 && "border-l-2 border-red-400",
+          !isBlocked && !task.completed && task.priority === 2 && "border-l-2 border-orange-400",
+          !isBlocked && !task.completed && task.priority === 3 && "border-l-2 border-blue-400"
         )}
       >
         {draggable && (

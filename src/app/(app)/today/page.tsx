@@ -199,10 +199,14 @@ export default function TodayPage() {
               <SortableContext items={activeTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                 <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
                   {activeTasks.length === 0 && completedTasks.length === 0 && (
-                    <div className="py-12 text-center">
-                      <CalendarDays className="w-10 h-10 text-gray-200 dark:text-gray-700 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-gray-400">No tasks for today</p>
-                      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Add your first task below!</p>
+                    <div className="py-16 text-center">
+                      <div className="w-16 h-16 rounded-2xl bg-violet-50 dark:bg-violet-950/50 flex items-center justify-center mx-auto mb-4">
+                        <CalendarDays className="w-8 h-8 text-violet-300 dark:text-violet-700" />
+                      </div>
+                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">No tasks for today</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 max-w-[200px] mx-auto">
+                        Add a task below or press <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[10px] font-mono">K</kbd> for quick capture
+                      </p>
                     </div>
                   )}
                   {activeTasks.map(task => (
