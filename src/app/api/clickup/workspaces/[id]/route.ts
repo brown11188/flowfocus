@@ -8,7 +8,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { ClickUpClient } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +28,10 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Get the workspace connection
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id },
-    include: { connection: true },
+  // Get the workspace connection with its parent connection (for the access token)
+  const workspaceConn = await db.query.clickUpWorkspaceConnections.findFirst({
+    where: (w, { eq }) => eq(w.id, id),
+    with: { connection: true },
   });
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
@@ -113,9 +115,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id },
-  });
+  const [workspaceConn] = await db
+    .select()
+    .from(clickUpWorkspaceConnections)
+    .where(eq(clickUpWorkspaceConnections.id, id))
+    .limit(1);
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
     return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
@@ -125,13 +129,16 @@ export async function PATCH(
   try { body = await req.json(); } catch { /* ok */ }
 
   try {
-    const updated = await prisma.clickUpWorkspaceConnection.update({
-      where: { id },
-      data: {
-        ...(typeof body.syncEnabled === "boolean" ? { syncEnabled: body.syncEnabled } : {}),
-        ...(typeof body.isActive === "boolean" ? { isActive: body.isActive } : {}),
-      },
-    });
+    const patch: Partial<typeof workspaceConn> = {};
+    if (typeof body.syncEnabled === "boolean") patch.syncEnabled = body.syncEnabled;
+    if (typeof body.isActive === "boolean") patch.isActive = body.isActive;
+
+    const [updated] = await db
+      .update(clickUpWorkspaceConnections)
+      .set(patch)
+      .where(eq(clickUpWorkspaceConnections.id, id))
+      .returning();
+
     return NextResponse.json({ success: true, workspace: updated });
   } catch (err) {
     console.error("[ClickUp Patch Workspace]", err);

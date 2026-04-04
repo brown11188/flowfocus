@@ -10,7 +10,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { ClickUpClient, normalizeTask, buildWorkspaceStats } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +26,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "workspaceConnectionId is required" }, { status: 400 });
   }
 
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id: workspaceConnectionId },
-    include: { connection: true },
+  const workspaceConn = await db.query.clickUpWorkspaceConnections.findFirst({
+    where: (w, { eq }) => eq(w.id, workspaceConnectionId),
+    with: { connection: true },
   });
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {

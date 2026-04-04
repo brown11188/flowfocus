@@ -13,7 +13,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { exchangeCodeForToken, ClickUpClient } from "@/lib/clickup";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpConnections, clickUpWorkspaceConnections } from "@/lib/db/schema";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -61,40 +62,45 @@ export async function GET(req: NextRequest) {
     }
 
     // 3. Upsert ClickUpConnection (holds the token)
-    const connection = await prisma.clickUpConnection.upsert({
-      where:  { userId: sessionUserId },
-      create: {
+    const [connection] = await db
+      .insert(clickUpConnections)
+      .values({
         userId:      sessionUserId,
         accessToken: tokenData.access_token,
         tokenType:   tokenData.token_type ?? "Bearer",
-      },
-      update: {
-        accessToken: tokenData.access_token,
-        tokenType:   tokenData.token_type ?? "Bearer",
-        updatedAt:   new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: clickUpConnections.userId,
+        set: {
+          accessToken: tokenData.access_token,
+          tokenType:   tokenData.token_type ?? "Bearer",
+          updatedAt:   new Date(),
+        },
+      })
+      .returning();
 
     // 4. If only one workspace, auto-connect it
     //    Otherwise, redirect to settings with workspace selection UI
     if (workspaces.length === 1) {
       const ws = workspaces[0];
-      await prisma.clickUpWorkspaceConnection.upsert({
-        where: { userId_teamId: { userId: sessionUserId, teamId: ws.id } },
-        create: {
+      await db
+        .insert(clickUpWorkspaceConnections)
+        .values({
           connectionId: connection.id,
           userId:       sessionUserId,
           teamId:       ws.id,
           teamName:     ws.name,
           isActive:     true,
           syncEnabled:  true,
-        },
-        update: {
-          teamName:  ws.name,
-          isActive:  true,
-          updatedAt: new Date(),
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [clickUpWorkspaceConnections.userId, clickUpWorkspaceConnections.teamId],
+          set: {
+            teamName:  ws.name,
+            isActive:  true,
+            updatedAt: new Date(),
+          },
+        });
 
       const response = NextResponse.redirect(settingsUrl("&clickup_success=1"));
       response.cookies.delete("clickup_oauth_state");
