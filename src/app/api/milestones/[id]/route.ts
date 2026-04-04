@@ -1,27 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { milestones, milestoneTasks } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 function serializeMilestone(m: Record<string, unknown>) {
+  const taskList = Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>) : [];
   return {
     ...m,
     targetDate: m.targetDate instanceof Date ? (m.targetDate as Date).toISOString() : m.targetDate,
     createdAt: m.createdAt instanceof Date ? (m.createdAt as Date).toISOString() : m.createdAt,
     updatedAt: m.updatedAt instanceof Date ? (m.updatedAt as Date).toISOString() : m.updatedAt,
-    tasks: Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>).map((mt) => ({
+    tasks: taskList.map((mt) => ({
       ...mt,
-      task: mt.task ? {
-        ...(mt.task as Record<string, unknown>),
-        dueDate: (mt.task as Record<string, unknown>).dueDate instanceof Date ? ((mt.task as Record<string, unknown>).dueDate as Date).toISOString() : ((mt.task as Record<string, unknown>).dueDate ?? null),
-      } : null,
-    })) : [],
+      task: mt.task
+        ? {
+            ...(mt.task as Record<string, unknown>),
+            dueDate:
+              (mt.task as Record<string, unknown>).dueDate instanceof Date
+                ? ((mt.task as Record<string, unknown>).dueDate as Date).toISOString()
+                : ((mt.task as Record<string, unknown>).dueDate ?? null),
+          }
+        : null,
+    })),
+    _count: { tasks: taskList.length },
   };
 }
 
-const MILESTONE_INCLUDE = {
-  tasks: { include: { task: { select: { id: true, title: true, completed: true, priority: true, dueDate: true } } } },
-  _count: { select: { tasks: true } },
-};
+const MILESTONE_WITH = {
+  tasks: {
+    with: {
+      task: { columns: { id: true, title: true, completed: true, priority: true, dueDate: true } as const },
+    },
+  },
+} as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -34,10 +46,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.description !== undefined) updates.description = body.description;
   if (body.targetDate !== undefined) updates.targetDate = new Date(body.targetDate);
 
-  const milestone = await prisma.milestone.update({
-    where: { id },
-    data: updates,
-    include: MILESTONE_INCLUDE,
+  await db.update(milestones).set(updates).where(eq(milestones.id, id));
+
+  const milestone = await db.query.milestones.findFirst({
+    where: (m, { eq }) => eq(m.id, id),
+    with: MILESTONE_WITH,
   });
   return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));
 }
@@ -47,7 +60,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  await prisma.milestone.delete({ where: { id } });
+  await db.delete(milestones).where(eq(milestones.id, id));
   return NextResponse.json({ success: true });
 }
 
@@ -60,15 +73,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { action, taskId } = await req.json();
 
   if (action === "link") {
-    await prisma.milestoneTask.upsert({
-      where: { milestoneId_taskId: { milestoneId: id, taskId } },
-      update: {},
-      create: { milestoneId: id, taskId },
-    });
+    await db.insert(milestoneTasks).values({ milestoneId: id, taskId }).onConflictDoNothing();
   } else if (action === "unlink") {
-    await prisma.milestoneTask.deleteMany({ where: { milestoneId: id, taskId } });
+    await db
+      .delete(milestoneTasks)
+      .where(and(eq(milestoneTasks.milestoneId, id), eq(milestoneTasks.taskId, taskId)));
   }
 
-  const milestone = await prisma.milestone.findUnique({ where: { id }, include: MILESTONE_INCLUDE });
+  const milestone = await db.query.milestones.findFirst({
+    where: (m, { eq }) => eq(m.id, id),
+    with: MILESTONE_WITH,
+  });
   return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));
 }

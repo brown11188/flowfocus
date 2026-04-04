@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { meetingNotes } from "@/lib/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 function serialize(item: Record<string, unknown>) {
   return {
@@ -14,7 +16,11 @@ function serialize(item: Record<string, unknown>) {
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const items = await prisma.meetingNote.findMany({ where: { userId: session.user.id }, orderBy: { meetingDate: "desc" } });
+  const items = await db
+    .select()
+    .from(meetingNotes)
+    .where(eq(meetingNotes.userId, session.user.id))
+    .orderBy(desc(meetingNotes.meetingDate));
   return NextResponse.json(items.map((item) => serialize(item as unknown as Record<string, unknown>)));
 }
 
@@ -22,8 +28,9 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json();
-  const item = await prisma.meetingNote.create({
-    data: {
+  const [item] = await db
+    .insert(meetingNotes)
+    .values({
       title: String(body.title ?? "").trim(),
       rawNotes: body.rawNotes ?? "",
       summary: body.summary ?? null,
@@ -33,7 +40,8 @@ export async function POST(req: NextRequest) {
       projectId: body.projectId ?? null,
       userId: session.user.id,
       source: body.source ?? "manual",
-    },
-  });
+    })
+    .returning();
   return NextResponse.json(serialize(item as unknown as Record<string, unknown>));
 }
+

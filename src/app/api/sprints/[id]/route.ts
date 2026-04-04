@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { tasks, sprints } from "@/lib/db/schema";
+import { eq, and, ne, count } from "drizzle-orm";
 
 function serializeSprint(s: Record<string, unknown>) {
   return {
@@ -27,19 +29,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updates.isActive = body.isActive;
     // Deactivate other sprints in same project if activating this one
     if (body.isActive) {
-      const sprint = await prisma.sprint.findUnique({ where: { id } });
-      if (sprint) {
-        await prisma.sprint.updateMany({ where: { projectId: sprint.projectId, id: { not: id } }, data: { isActive: false } });
+      const existing = await db.query.sprints.findFirst({ where: (s, { eq }) => eq(s.id, id) });
+      if (existing) {
+        await db
+          .update(sprints)
+          .set({ isActive: false })
+          .where(and(eq(sprints.projectId, existing.projectId), ne(sprints.id, id)));
       }
     }
   }
 
-  const sprint = await prisma.sprint.update({
-    where: { id },
-    data: updates,
-    include: { _count: { select: { tasks: true } } },
-  });
-  return NextResponse.json(serializeSprint(sprint as unknown as Record<string, unknown>));
+  const [sprint] = await db.update(sprints).set(updates).where(eq(sprints.id, id)).returning();
+
+  const [{ count: taskCount }] = await db
+    .select({ count: count() })
+    .from(tasks)
+    .where(eq(tasks.sprintId, id));
+
+  return NextResponse.json(
+    serializeSprint({ ...(sprint as unknown as Record<string, unknown>), _count: { tasks: taskCount } })
+  );
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,7 +57,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
   // Remove tasks from sprint before deleting
-  await prisma.task.updateMany({ where: { sprintId: id }, data: { sprintId: null } });
-  await prisma.sprint.delete({ where: { id } });
+  await db.update(tasks).set({ sprintId: null }).where(eq(tasks.sprintId, id));
+  await db.delete(sprints).where(eq(sprints.id, id));
   return NextResponse.json({ success: true });
 }

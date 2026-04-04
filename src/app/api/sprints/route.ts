@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { tasks, sprints as sprintsTable } from "@/lib/db/schema";
+import { eq, count } from "drizzle-orm";
 
 function serializeSprint(s: Record<string, unknown>) {
   return {
@@ -20,13 +22,28 @@ export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
-  const sprints = await prisma.sprint.findMany({
-    where: { projectId, project: { userId: session.user.id } },
-    include: { _count: { select: { tasks: true } } },
-    orderBy: { startDate: "desc" },
+  const project = await db.query.projects.findFirst({
+    where: (p, { eq, and }) => and(eq(p.id, projectId), eq(p.userId, session.user.id)),
+  });
+  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+
+  const sprintList = await db.query.sprints.findMany({
+    where: (s, { eq }) => eq(s.projectId, projectId),
+    orderBy: (s, { desc }) => [desc(s.startDate)],
   });
 
-  return NextResponse.json(sprints.map((s) => serializeSprint(s as unknown as Record<string, unknown>)));
+  const counts = await db
+    .select({ sprintId: tasks.sprintId, count: count() })
+    .from(tasks)
+    .where(eq(tasks.projectId, projectId))
+    .groupBy(tasks.sprintId);
+  const countMap = new Map(counts.map((c) => [c.sprintId, c.count]));
+
+  return NextResponse.json(
+    sprintList.map((s) =>
+      serializeSprint({ ...(s as unknown as Record<string, unknown>), _count: { tasks: countMap.get(s.id) ?? 0 } })
+    )
+  );
 }
 
 // POST /api/sprints
@@ -39,13 +56,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name, startDate, endDate, projectId required" }, { status: 400 });
   }
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, userId: session.user.id } });
+  const project = await db.query.projects.findFirst({
+    where: (p, { eq, and }) => and(eq(p.id, projectId), eq(p.userId, session.user.id)),
+  });
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const sprint = await prisma.sprint.create({
-    data: { name: name.trim(), goal, startDate: new Date(startDate), endDate: new Date(endDate), projectId },
-    include: { _count: { select: { tasks: true } } },
-  });
+  const [sprint] = await db
+    .insert(sprintsTable)
+    .values({ name: name.trim(), goal, startDate: new Date(startDate), endDate: new Date(endDate), projectId })
+    .returning();
 
-  return NextResponse.json(serializeSprint(sprint as unknown as Record<string, unknown>));
+  return NextResponse.json(
+    serializeSprint({ ...(sprint as unknown as Record<string, unknown>), _count: { tasks: 0 } })
+  );
 }
