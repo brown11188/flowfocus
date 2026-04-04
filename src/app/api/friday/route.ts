@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db"
+import { eq, and, gte, lte, lt, isNull, isNotNull, count, asc, desc } from "drizzle-orm"
+import { users, projects, tasks, microsoftConnections, calendarEvents, emailDigests, dailyBriefings, sessions, sprints } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -80,42 +82,48 @@ async function buildUserContext(userId: string) {
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date(now);   todayEnd.setHours(23, 59, 59, 999);
   const weekEnd = new Date(now);    weekEnd.setDate(now.getDate() + 7);
+  const weekAgo = new Date(now.getTime() - 7 * 86400000);
 
-  const [allTasks, projects, overdueTasks, todayTasks, upcomingTasks] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false },
-      include: { project: true },
-      orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
-      take: 60,
-    }),
-    prisma.project.findMany({ where: { userId }, orderBy: { sortOrder: "asc" } }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { lt: todayStart } },
-      include: { project: true },
-      take: 20,
-    }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gte: todayStart, lte: todayEnd } },
-      include: { project: true },
-      take: 20,
-    }),
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gt: todayEnd, lte: weekEnd } },
-      include: { project: true },
-      take: 20,
-    }),
+  const [allTaskRows, projectRows, overdueTaskRows, todayTaskRows, upcomingTaskRows] = await Promise.all([
+    db.select({ id: tasks.id, title: tasks.title, priority: tasks.priority, dueDate: tasks.dueDate, completed: tasks.completed, projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false), eq(tasks.completed, false)))
+      .orderBy(asc(tasks.priority), asc(tasks.dueDate))
+      .limit(60),
+    db.select().from(projects).where(eq(projects.userId, userId)).orderBy(asc(projects.sortOrder)),
+    db.select({ id: tasks.id, title: tasks.title, priority: tasks.priority, dueDate: tasks.dueDate, completed: tasks.completed, projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false), eq(tasks.completed, false), lt(tasks.dueDate, todayStart)))
+      .limit(20),
+    db.select({ id: tasks.id, title: tasks.title, priority: tasks.priority, dueDate: tasks.dueDate, completed: tasks.completed, projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false), eq(tasks.completed, false), gte(tasks.dueDate, todayStart), lte(tasks.dueDate, todayEnd)))
+      .limit(20),
+    db.select({ id: tasks.id, title: tasks.title, priority: tasks.priority, dueDate: tasks.dueDate, completed: tasks.completed, projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false), eq(tasks.completed, false), gt(tasks.dueDate, todayEnd), lte(tasks.dueDate, weekEnd)))
+      .limit(20),
   ]);
 
-  const completedThisWeek = await prisma.task.count({
-    where: { userId, completed: true, completedAt: { gte: new Date(now.getTime() - 7 * 86400000) } },
+  const [completedCountResult] = await db
+    .select({ value: count() })
+    .from(tasks)
+    .where(and(eq(tasks.userId, userId), eq(tasks.completed, true), gte(tasks.completedAt, weekAgo)));
+  const completedThisWeek = completedCountResult?.value ?? 0;
+
+  // Attach project name to tasks
+  const projectMap = new Map(projectRows.map(p => [p.id, p]));
+  const attachProject = (t: { id: string; title: string; priority: number; dueDate: Date | null; completed: boolean; projectId: string | null }) => ({
+    ...t,
+    project: t.projectId ? projectMap.get(t.projectId) ?? null : null,
   });
 
   return {
-    allTasks,
-    projects,
-    overdueTasks,
-    todayTasks,
-    upcomingTasks,
+    allTasks: allTaskRows.map(attachProject),
+    projects: projectRows,
+    overdueTasks: overdueTaskRows.map(attachProject),
+    todayTasks: todayTaskRows.map(attachProject),
+    upcomingTasks: upcomingTaskRows.map(attachProject),
     completedThisWeek,
     now,
   };

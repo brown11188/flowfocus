@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db"
+import { eq, and, gte, lte, lt, isNull, isNotNull, count, asc, desc } from "drizzle-orm"
+import { users, projects, tasks, microsoftConnections, calendarEvents, emailDigests, dailyBriefings, sessions, sprints } from "@/db/schema";
 
 // Import the core scan logic from shared lib
 import { runEmailScan } from "@/lib/email-scan";
@@ -37,10 +39,10 @@ export async function GET(req: NextRequest) {
   const today = startedAt.toISOString().split("T")[0];
 
   // Find all users with Microsoft connected and email sync enabled
-  const connections = await prisma.microsoftConnection.findMany({
-    where: { syncEmailsEnabled: true },
-    select: { userId: true, email: true, displayName: true },
-  });
+  const connections = await db
+    .select({ userId: microsoftConnections.userId, email: microsoftConnections.email, displayName: microsoftConnections.displayName })
+    .from(microsoftConnections)
+    .where(eq(microsoftConnections.syncEmailsEnabled, true));
 
   if (connections.length === 0) {
     return NextResponse.json({
@@ -60,8 +62,8 @@ export async function GET(req: NextRequest) {
 
   for (const conn of connections) {
     // Skip if already scanned today successfully
-    const existingDigest = await prisma.emailDigest.findFirst({
-      where: { userId: conn.userId, scanDate: today, status: "done" },
+    const existingDigest = await db.query.emailDigests.findFirst({
+      where: and(eq(emailDigests.userId, conn.userId), eq(emailDigests.scanDate, today), eq(emailDigests.status, 'done')),
     });
 
     if (existingDigest) {
@@ -71,9 +73,9 @@ export async function GET(req: NextRequest) {
 
     try {
       // Fetch user's timezone
-      const user = await prisma.user.findUnique({
-        where: { id: conn.userId },
-        select: { timezone: true },
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, conn.userId),
+        columns: { timezone: true },
       });
       const tz = user?.timezone ?? "UTC";
       

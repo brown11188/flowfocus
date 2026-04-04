@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db"
+import { eq, and, gte, lte, lt, isNull, isNotNull, count, asc, desc } from "drizzle-orm"
+import { users, projects, tasks, microsoftConnections, calendarEvents, emailDigests, dailyBriefings, sessions, sprints } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -18,11 +20,11 @@ export async function GET(req: NextRequest) {
 
   // Find all users who have logged in within the last 7 days
   const cutoff = new Date(Date.now() - 7 * 86400000);
-  const activeSessions = await prisma.session.findMany({
-    where: { expires: { gt: cutoff } },
-    select: { userId: true },
-    distinct: ["userId"],
-  });
+  const activeSessionRows = await db
+    .selectDistinct({ userId: sessions.userId })
+    .from(sessions)
+    .where(gte(sessions.expires, cutoff));
+  const activeSessions = activeSessionRows;
 
   const userIds = activeSessions.map(s => s.userId);
   const results: Array<{ userId: string; status: string; error?: string }> = [];

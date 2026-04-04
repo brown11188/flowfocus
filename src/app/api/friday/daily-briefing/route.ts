@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db"
+import { eq, and, gte, lte, lt, isNull, isNotNull, count, asc, desc } from "drizzle-orm"
+import { users, projects, tasks, microsoftConnections, calendarEvents, emailDigests, dailyBriefings, sessions, sprints } from "@/db/schema";
 import type { DailyBriefing, DailyBriefingTask } from "@/types/daily-briefing";
 
 export const dynamic = "force-dynamic";
