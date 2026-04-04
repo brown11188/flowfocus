@@ -5,7 +5,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpWorkspaceConnections, clickUpConnections, clickUpReports } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import {
   ClickUpClient,
   normalizeTask,
@@ -51,10 +53,20 @@ export async function POST(req: NextRequest) {
   }
 
   // Get the workspace connection
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id: body.workspaceConnectionId },
-    include: { connection: true },
-  });
+  const [workspaceConn] = await db
+    .select({
+      id: clickUpWorkspaceConnections.id,
+      connectionId: clickUpWorkspaceConnections.connectionId,
+      userId: clickUpWorkspaceConnections.userId,
+      teamId: clickUpWorkspaceConnections.teamId,
+      teamName: clickUpWorkspaceConnections.teamName,
+      isActive: clickUpWorkspaceConnections.isActive,
+      connectionAccessToken: clickUpConnections.accessToken,
+    })
+    .from(clickUpWorkspaceConnections)
+    .innerJoin(clickUpConnections, eq(clickUpWorkspaceConnections.connectionId, clickUpConnections.id))
+    .where(eq(clickUpWorkspaceConnections.id, body.workspaceConnectionId))
+    .limit(1);
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
     return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
@@ -65,7 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const client = new ClickUpClient(workspaceConn.connection.accessToken);
+    const client = new ClickUpClient(workspaceConn.connectionAccessToken);
 
     // Fetch all tasks from the workspace
     const { tasks: rawTasks, spaces } = await client.getAllWorkspaceTasks(
@@ -87,24 +99,22 @@ export async function POST(req: NextRequest) {
     );
 
     // Persist the report
-    const report = await prisma.clickUpReport.create({
-      data: {
-        connectionId: workspaceConn.connectionId,
-        workspaceId: workspaceConn.teamId,
-        workspaceName: workspaceConn.teamName,
-        workspaceConnectionId: workspaceConn.id,
-        rawData: JSON.stringify({ tasks: tasks.slice(0, 100), spaces: spaces.map((s) => ({ id: s.id, name: s.name })) }),
-        analysis,
-        taskCount: stats.total,
-        overdueCount: stats.overdue,
-      },
-    });
+    const [report] = await db.insert(clickUpReports).values({
+      connectionId: workspaceConn.connectionId,
+      workspaceId: workspaceConn.teamId,
+      workspaceName: workspaceConn.teamName,
+      workspaceConnectionId: workspaceConn.id,
+      rawData: JSON.stringify({ tasks: tasks.slice(0, 100), spaces: spaces.map((s) => ({ id: s.id, name: s.name })) }),
+      analysis,
+      taskCount: stats.total,
+      overdueCount: stats.overdue,
+    }).returning();
 
     // Update lastSyncedAt
-    await prisma.clickUpWorkspaceConnection.update({
-      where: { id: workspaceConn.id },
-      data: { lastSyncedAt: new Date() },
-    });
+    await db
+      .update(clickUpWorkspaceConnections)
+      .set({ lastSyncedAt: new Date() })
+      .where(eq(clickUpWorkspaceConnections.id, workspaceConn.id));
 
     return NextResponse.json({
       report: {

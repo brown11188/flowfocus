@@ -13,7 +13,9 @@
  */
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpWorkspaceConnections, clickUpConnections, clickUpReports } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   ClickUpClient,
   normalizeTask,
@@ -62,10 +64,19 @@ export async function POST(req: NextRequest) {
   }
 
   // Verify all workspace connections belong to the current user
-  const workspaceConns = await prisma.clickUpWorkspaceConnection.findMany({
-    where: { id: { in: ids }, userId: session.user.id, isActive: true },
-    include: { connection: true },
-  });
+  const workspaceConns = await db
+    .select({
+      id: clickUpWorkspaceConnections.id,
+      connectionId: clickUpWorkspaceConnections.connectionId,
+      userId: clickUpWorkspaceConnections.userId,
+      teamId: clickUpWorkspaceConnections.teamId,
+      teamName: clickUpWorkspaceConnections.teamName,
+      isActive: clickUpWorkspaceConnections.isActive,
+      connectionAccessToken: clickUpConnections.accessToken,
+    })
+    .from(clickUpWorkspaceConnections)
+    .innerJoin(clickUpConnections, eq(clickUpWorkspaceConnections.connectionId, clickUpConnections.id))
+    .where(and(inArray(clickUpWorkspaceConnections.id, ids), eq(clickUpWorkspaceConnections.userId, session.user.id), eq(clickUpWorkspaceConnections.isActive, true)));
 
   if (workspaceConns.length === 0) {
     return new Response(
@@ -105,7 +116,7 @@ export async function POST(req: NextRequest) {
         });
 
         try {
-          const client = new ClickUpClient(wsConn.connection.accessToken);
+          const client = new ClickUpClient(wsConn.connectionAccessToken);
 
           const { tasks: rawTasks, spaces } = await client.getAllWorkspaceTasks(
             wsConn.teamId,
@@ -121,26 +132,24 @@ export async function POST(req: NextRequest) {
             stats
           );
 
-          const report = await prisma.clickUpReport.create({
-            data: {
-              connectionId: wsConn.connectionId,
-              workspaceId: wsConn.teamId,
-              workspaceName: wsConn.teamName,
-              workspaceConnectionId: wsConn.id,
-              rawData: JSON.stringify({
-                tasks: tasks.slice(0, 100),
-                spaces: spaces.map((s) => ({ id: s.id, name: s.name })),
-              }),
-              analysis,
-              taskCount: stats.total,
-              overdueCount: stats.overdue,
-            },
-          });
+          const [report] = await db.insert(clickUpReports).values({
+            connectionId: wsConn.connectionId,
+            workspaceId: wsConn.teamId,
+            workspaceName: wsConn.teamName,
+            workspaceConnectionId: wsConn.id,
+            rawData: JSON.stringify({
+              tasks: tasks.slice(0, 100),
+              spaces: spaces.map((s) => ({ id: s.id, name: s.name })),
+            }),
+            analysis,
+            taskCount: stats.total,
+            overdueCount: stats.overdue,
+          }).returning();
 
-          await prisma.clickUpWorkspaceConnection.update({
-            where: { id: wsConn.id },
-            data: { lastSyncedAt: new Date() },
-          });
+          await db
+            .update(clickUpWorkspaceConnections)
+            .set({ lastSyncedAt: new Date() })
+            .where(eq(clickUpWorkspaceConnections.id, wsConn.id));
 
           totalReports++;
           totalTasks += stats.total;

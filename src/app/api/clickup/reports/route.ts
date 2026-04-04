@@ -5,7 +5,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpReports, clickUpWorkspaceConnections } from "@/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -18,25 +20,25 @@ export async function GET(req: NextRequest) {
   const wsConnId = req.nextUrl.searchParams.get("workspaceConnectionId");
 
   // Fetch reports belonging to the user's workspace connections
-  const reports = await prisma.clickUpReport.findMany({
-    where: {
-      workspaceConnection: {
-        userId: session.user.id,
-        ...(wsConnId ? { id: wsConnId } : {}),
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      workspaceName: true,
-      workspaceConnectionId: true,
-      taskCount: true,
-      overdueCount: true,
-      analysis: true,
-      createdAt: true,
-    },
-  });
+  const reports = await db
+    .select({
+      id: clickUpReports.id,
+      workspaceName: clickUpReports.workspaceName,
+      workspaceConnectionId: clickUpReports.workspaceConnectionId,
+      taskCount: clickUpReports.taskCount,
+      overdueCount: clickUpReports.overdueCount,
+      analysis: clickUpReports.analysis,
+      createdAt: clickUpReports.createdAt,
+    })
+    .from(clickUpReports)
+    .innerJoin(clickUpWorkspaceConnections, eq(clickUpReports.workspaceConnectionId, clickUpWorkspaceConnections.id))
+    .where(
+      wsConnId
+        ? and(eq(clickUpWorkspaceConnections.userId, session.user.id), eq(clickUpWorkspaceConnections.id, wsConnId))
+        : eq(clickUpWorkspaceConnections.userId, session.user.id)
+    )
+    .orderBy(desc(clickUpReports.createdAt))
+    .limit(50);
 
   return NextResponse.json({ reports });
 }

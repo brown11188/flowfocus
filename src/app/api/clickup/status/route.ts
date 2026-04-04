@@ -4,7 +4,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpConnections, clickUpWorkspaceConnections, clickUpReports } from "@/db/schema";
+import { eq, desc, asc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -15,57 +17,54 @@ export async function GET(_req: NextRequest) {
   }
 
   // Get the main connection (holds the token)
-  const connection = await prisma.clickUpConnection.findUnique({
-    where: { userId: session.user.id },
-    select: {
-      id: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const [connection] = await db
+    .select({ id: clickUpConnections.id, createdAt: clickUpConnections.createdAt, updatedAt: clickUpConnections.updatedAt })
+    .from(clickUpConnections)
+    .where(eq(clickUpConnections.userId, session.user.id))
+    .limit(1);
 
   if (!connection) {
     return NextResponse.json({ connection: null, workspaces: [] });
   }
 
   // Get all workspace connections for this user
-  const workspaces = await prisma.clickUpWorkspaceConnection.findMany({
-    where: { userId: session.user.id },
-    orderBy: [{ isActive: "desc" }, { teamName: "asc" }],
-    select: {
-      id: true,
-      teamId: true,
-      teamName: true,
-      isActive: true,
-      syncEnabled: true,
-      lastSyncedAt: true,
-      createdAt: true,
-      reports: {
-        orderBy: { createdAt: "desc" },
-        take: 3,
-        select: {
-          id: true,
-          workspaceName: true,
-          taskCount: true,
-          overdueCount: true,
-          analysis: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
+  const wsRows = await db
+    .select()
+    .from(clickUpWorkspaceConnections)
+    .where(eq(clickUpWorkspaceConnections.userId, session.user.id))
+    .orderBy(desc(clickUpWorkspaceConnections.isActive), asc(clickUpWorkspaceConnections.teamName));
+
+  // Fetch recent reports for each workspace connection
+  const workspaces = await Promise.all(
+    wsRows.map(async (ws) => {
+      const reports = await db
+        .select({
+          id: clickUpReports.id,
+          workspaceName: clickUpReports.workspaceName,
+          taskCount: clickUpReports.taskCount,
+          overdueCount: clickUpReports.overdueCount,
+          analysis: clickUpReports.analysis,
+          createdAt: clickUpReports.createdAt,
+        })
+        .from(clickUpReports)
+        .where(eq(clickUpReports.workspaceConnectionId, ws.id))
+        .orderBy(desc(clickUpReports.createdAt))
+        .limit(3);
+      return {
+        id: ws.id,
+        teamId: ws.teamId,
+        teamName: ws.teamName,
+        isActive: ws.isActive,
+        syncEnabled: ws.syncEnabled,
+        lastSyncedAt: ws.lastSyncedAt,
+        createdAt: ws.createdAt,
+        reports,
+      };
+    })
+  );
 
   return NextResponse.json({
-    connection: connection ? { id: connection.id } : null,
-    workspaces: workspaces.map((ws) => ({
-      id: ws.id,
-      teamId: ws.teamId,
-      teamName: ws.teamName,
-      isActive: ws.isActive,
-      syncEnabled: ws.syncEnabled,
-      lastSyncedAt: ws.lastSyncedAt,
-      createdAt: ws.createdAt,
-      reports: ws.reports,
-    })),
+    connection: { id: connection.id },
+    workspaces,
   });
 }

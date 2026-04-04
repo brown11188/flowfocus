@@ -10,7 +10,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpWorkspaceConnections, clickUpConnections } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { ClickUpClient, normalizeTask, buildWorkspaceStats } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +28,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "workspaceConnectionId is required" }, { status: 400 });
   }
 
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id: workspaceConnectionId },
-    include: { connection: true },
-  });
+  const [workspaceConn] = await db
+    .select({
+      id: clickUpWorkspaceConnections.id,
+      userId: clickUpWorkspaceConnections.userId,
+      teamId: clickUpWorkspaceConnections.teamId,
+      isActive: clickUpWorkspaceConnections.isActive,
+      connectionAccessToken: clickUpConnections.accessToken,
+    })
+    .from(clickUpWorkspaceConnections)
+    .innerJoin(clickUpConnections, eq(clickUpWorkspaceConnections.connectionId, clickUpConnections.id))
+    .where(eq(clickUpWorkspaceConnections.id, workspaceConnectionId))
+    .limit(1);
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
     return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
@@ -44,7 +54,7 @@ export async function GET(req: NextRequest) {
   const includeClosed = req.nextUrl.searchParams.get("includeClosed") === "true";
 
   try {
-    const client = new ClickUpClient(workspaceConn.connection.accessToken);
+    const client = new ClickUpClient(workspaceConn.connectionAccessToken);
     const { tasks: rawTasks, spaceMap } = await client.fetchTasksForSpaces(
       workspaceConn.teamId,
       spaceIds,

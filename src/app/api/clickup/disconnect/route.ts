@@ -8,7 +8,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpConnections, clickUpWorkspaceConnections } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -24,36 +26,36 @@ export async function DELETE(req: NextRequest) {
   try {
     // Full disconnect: remove token and all workspace connections
     if (body.full) {
-      await prisma.clickUpConnection.delete({
-        where: { userId: session.user.id },
-      });
+      await db.delete(clickUpConnections).where(eq(clickUpConnections.userId, session.user.id));
       return NextResponse.json({ success: true, message: "Fully disconnected from ClickUp" });
     }
 
     // Disconnect specific workspace
     if (body.workspaceConnectionId) {
-      const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-        where: { id: body.workspaceConnectionId },
-      });
+      const [workspaceConn] = await db
+        .select()
+        .from(clickUpWorkspaceConnections)
+        .where(eq(clickUpWorkspaceConnections.id, body.workspaceConnectionId))
+        .limit(1);
 
       if (!workspaceConn || workspaceConn.userId !== session.user.id) {
         return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
       }
 
       // Soft delete (deactivate)
-      await prisma.clickUpWorkspaceConnection.update({
-        where: { id: body.workspaceConnectionId },
-        data: { isActive: false },
-      });
+      await db
+        .update(clickUpWorkspaceConnections)
+        .set({ isActive: false })
+        .where(eq(clickUpWorkspaceConnections.id, body.workspaceConnectionId));
 
       return NextResponse.json({ success: true, message: `Disconnected from ${workspaceConn.teamName}` });
     }
 
     // No parameters: disconnect all workspaces but keep token
-    await prisma.clickUpWorkspaceConnection.updateMany({
-      where: { userId: session.user.id, isActive: true },
-      data: { isActive: false },
-    });
+    await db
+      .update(clickUpWorkspaceConnections)
+      .set({ isActive: false })
+      .where(and(eq(clickUpWorkspaceConnections.userId, session.user.id), eq(clickUpWorkspaceConnections.isActive, true)));
 
     return NextResponse.json({ success: true, message: "Disconnected from all workspaces" });
   } catch (err) {

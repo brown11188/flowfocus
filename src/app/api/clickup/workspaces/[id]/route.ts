@@ -8,7 +8,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { clickUpWorkspaceConnections, clickUpConnections } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { ClickUpClient } from "@/lib/clickup";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +29,18 @@ export async function GET(
   }
 
   // Get the workspace connection
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id },
-    include: { connection: true },
-  });
+  const [workspaceConn] = await db
+    .select({
+      id: clickUpWorkspaceConnections.id,
+      userId: clickUpWorkspaceConnections.userId,
+      teamId: clickUpWorkspaceConnections.teamId,
+      isActive: clickUpWorkspaceConnections.isActive,
+      connectionAccessToken: clickUpConnections.accessToken,
+    })
+    .from(clickUpWorkspaceConnections)
+    .innerJoin(clickUpConnections, eq(clickUpWorkspaceConnections.connectionId, clickUpConnections.id))
+    .where(eq(clickUpWorkspaceConnections.id, id))
+    .limit(1);
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
     return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
@@ -47,7 +57,7 @@ export async function GET(
   }
 
   try {
-    const client = new ClickUpClient(workspaceConn.connection.accessToken);
+    const client = new ClickUpClient(workspaceConn.connectionAccessToken);
     const structure = await client.getWorkspaceStructure(workspaceConn.teamId);
 
     const result = {
@@ -113,9 +123,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id },
-  });
+  const [workspaceConn] = await db
+    .select()
+    .from(clickUpWorkspaceConnections)
+    .where(eq(clickUpWorkspaceConnections.id, id))
+    .limit(1);
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
     return NextResponse.json({ error: "Workspace connection not found" }, { status: 404 });
@@ -125,13 +137,14 @@ export async function PATCH(
   try { body = await req.json(); } catch { /* ok */ }
 
   try {
-    const updated = await prisma.clickUpWorkspaceConnection.update({
-      where: { id },
-      data: {
+    const [updated] = await db
+      .update(clickUpWorkspaceConnections)
+      .set({
         ...(typeof body.syncEnabled === "boolean" ? { syncEnabled: body.syncEnabled } : {}),
         ...(typeof body.isActive === "boolean" ? { isActive: body.isActive } : {}),
-      },
-    });
+      })
+      .where(eq(clickUpWorkspaceConnections.id, id))
+      .returning();
     return NextResponse.json({ success: true, workspace: updated });
   } catch (err) {
     console.error("[ClickUp Patch Workspace]", err);
