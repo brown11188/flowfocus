@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -42,25 +42,41 @@ export async function GET(req: NextRequest) {
   const { start, end } = getWeekBounds(week);
   const userId = session.user.id;
 
-  const [completedTasks, allDueTasks, focusSessions] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, completed: true, completedAt: { gte: start, lte: end } },
-      select: { id: true, completedAt: true, projectId: true, project: { select: { name: true, color: true } } },
+  const [completedTasks, allDueTasks, focusSessionRows] = await Promise.all([
+    db.query.tasks.findMany({
+      where: (t, { eq, and, gte, lte }) => and(
+        eq(t.userId, userId),
+        eq(t.completed, true),
+        gte(t.completedAt, start),
+        lte(t.completedAt, end)
+      ),
+      columns: { id: true, completedAt: true, projectId: true },
+      with: { project: { columns: { name: true, color: true } } },
     }),
-    prisma.task.findMany({
-      where: { userId, dueDate: { gte: start, lte: end }, isDeleted: false },
-      select: { id: true, title: true, dueDate: true, completed: true, projectId: true, project: { select: { name: true } } },
+    db.query.tasks.findMany({
+      where: (t, { eq, and, gte, lte }) => and(
+        eq(t.userId, userId),
+        gte(t.dueDate, start),
+        lte(t.dueDate, end),
+        eq(t.isDeleted, false)
+      ),
+      columns: { id: true, title: true, dueDate: true, completed: true, projectId: true },
+      with: { project: { columns: { name: true } } },
     }),
-    prisma.focusSession.findMany({
-      where: { userId, createdAt: { gte: start, lte: end } },
-      select: { actualMins: true, createdAt: true },
+    db.query.focusSessions.findMany({
+      where: (fs, { eq, and, gte, lte }) => and(
+        eq(fs.userId, userId),
+        gte(fs.createdAt, start),
+        lte(fs.createdAt, end)
+      ),
+      columns: { actualMins: true, createdAt: true },
     }),
   ]);
 
   const completed = completedTasks.length;
   const overdueTasks = allDueTasks.filter(t => !t.completed);
   const overdue = overdueTasks.length;
-  const focusMinutes = focusSessions.reduce((sum, s) => sum + s.actualMins, 0);
+  const focusMinutes = focusSessionRows.reduce((sum, s) => sum + s.actualMins, 0);
   const completionRate = completed + overdue > 0 ? Math.round((completed / (completed + overdue)) * 100) : 0;
 
   // By day breakdown
@@ -70,7 +86,7 @@ export async function GET(req: NextRequest) {
     dayDate.setDate(start.getDate() + i);
     const dayStr = dayDate.toISOString().slice(0, 10);
     const completedCount = completedTasks.filter(t => t.completedAt && t.completedAt.toISOString().slice(0, 10) === dayStr).length;
-    const focusMins = focusSessions.filter(s => s.createdAt.toISOString().slice(0, 10) === dayStr).reduce((sum, s) => sum + s.actualMins, 0);
+    const focusMins = focusSessionRows.filter(s => s.createdAt.toISOString().slice(0, 10) === dayStr).reduce((sum, s) => sum + s.actualMins, 0);
     return { day, completedCount, focusMinutes: focusMins };
   });
 
