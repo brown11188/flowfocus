@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { tasks, projects, focusSessions } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     })
       .from(focusSessions)
       .where(eq(focusSessions.userId, userId))
-      .orderBy(focusSessions.createdAt)
+      .orderBy(desc(focusSessions.createdAt))
       .limit(5),
   ]);
 
