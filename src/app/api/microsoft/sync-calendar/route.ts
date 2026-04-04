@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, calendarEvents, tasks, projects } from "@/lib/db/schema";
+import { eq, and, isNotNull, inArray } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 import { createCalendarEvent } from "@/lib/microsoft-graph";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +22,10 @@ export async function POST(req: NextRequest) {
   const { taskIds, syncAll } = body;
 
   // Check Microsoft connection
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const connection = await db.select().from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1)
+    .then(r => r[0]);
 
   if (!connection) {
     return NextResponse.json(
@@ -38,23 +42,21 @@ export async function POST(req: NextRequest) {
   }
 
   // Get tasks to sync
-  const whereClause: { userId: string; dueDate: { not: null }; completed: boolean; id?: { in: string[] } } = {
-    userId: session.user.id,
-    dueDate: { not: null },
-    completed: false,
-  };
+  const baseConditions = and(
+    eq(tasks.userId, session.user.id),
+    isNotNull(tasks.dueDate),
+    eq(tasks.completed, false),
+    ...(taskIds && taskIds.length > 0 ? [inArray(tasks.id, taskIds as string[])] : []),
+  );
 
-  if (taskIds && taskIds.length > 0) {
-    whereClause.id = { in: taskIds };
-  }
+  const tasksWithProjects = await db
+    .select({ task: tasks, project: projects })
+    .from(tasks)
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
+    .where(baseConditions)
+    .limit(syncAll ? 50 : 10);
 
-  const tasks = await prisma.task.findMany({
-    where: whereClause,
-    include: { project: true },
-    take: syncAll ? 50 : 10,
-  });
-
-  if (tasks.length === 0) {
+  if (tasksWithProjects.length === 0) {
     return NextResponse.json({
       synced: 0,
       message: "No tasks with due dates to sync",
@@ -63,13 +65,14 @@ export async function POST(req: NextRequest) {
 
   const results: { taskId: string; success: boolean; eventId?: string; error?: string }[] = [];
 
-  for (const task of tasks) {
+  for (const { task, project } of tasksWithProjects) {
     if (!task.dueDate) continue;
 
     // Check if already synced
-    const existingEvent = await prisma.calendarEvent.findFirst({
-      where: { linkedTaskId: task.id },
-    });
+    const existingEvent = await db.select().from(calendarEvents)
+      .where(eq(calendarEvents.linkedTaskId, task.id))
+      .limit(1)
+      .then(r => r[0]);
 
     if (existingEvent) {
       results.push({ taskId: task.id, success: false, error: "Already synced" });
@@ -87,26 +90,25 @@ export async function POST(req: NextRequest) {
         start: startDate,
         end: endDate,
         isAllDay: false,
-        location: task.project?.name ?? undefined,
+        location: project?.name ?? undefined,
       });
 
       if (event) {
         // Store event in database
-        await prisma.calendarEvent.create({
-          data: {
-            connectionId: connection.id,
-            userId: session.user.id,
-            microsoftId: event.id,
-            subject: event.subject,
-            bodyPreview: event.bodyPreview,
-            startDateTime: new Date(event.start.dateTime),
-            endDateTime: new Date(event.end.dateTime),
-            isAllDay: event.isAllDay,
-            location: event.location?.displayName ?? null,
-            webLink: event.webLink,
-            linkedTaskId: task.id,
-            syncDirection: "bidirectional",
-          },
+        await db.insert(calendarEvents).values({
+          id: createId(),
+          connectionId: connection.id,
+          userId: session.user.id,
+          microsoftId: event.id,
+          subject: event.subject,
+          bodyPreview: event.bodyPreview,
+          startDateTime: new Date(event.start.dateTime),
+          endDateTime: new Date(event.end.dateTime),
+          isAllDay: event.isAllDay,
+          location: event.location?.displayName ?? null,
+          webLink: event.webLink,
+          linkedTaskId: task.id,
+          syncDirection: "bidirectional",
         });
 
         results.push({ taskId: task.id, success: true, eventId: event.id });
@@ -122,14 +124,13 @@ export async function POST(req: NextRequest) {
   const syncedCount = results.filter((r) => r.success).length;
 
   // Update last sync time
-  await prisma.microsoftConnection.update({
-    where: { userId: session.user.id },
-    data: { lastCalendarSyncAt: new Date() },
-  });
+  await db.update(microsoftConnections)
+    .set({ lastCalendarSyncAt: new Date() })
+    .where(eq(microsoftConnections.userId, session.user.id));
 
   return NextResponse.json({
     synced: syncedCount,
-    total: tasks.length,
+    total: tasksWithProjects.length,
     results,
   });
 }

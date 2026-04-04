@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, emailDigests, actionedEmails } from "@/lib/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -16,27 +18,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-    select: { id: true, email: true, displayName: true, lastEmailSyncAt: true, syncEmailsEnabled: true },
-  });
+  const connection = await db.select({
+    id: microsoftConnections.id,
+    email: microsoftConnections.email,
+    displayName: microsoftConnections.displayName,
+    lastEmailSyncAt: microsoftConnections.lastEmailSyncAt,
+    syncEmailsEnabled: microsoftConnections.syncEmailsEnabled,
+  }).from(microsoftConnections).where(eq(microsoftConnections.userId, session.user.id)).limit(1).then(r => r[0]);
 
   if (!connection) {
     return NextResponse.json({ connected: false, digest: null });
   }
 
   // Latest digest
-  const latest = await prisma.emailDigest.findFirst({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-  });
+  const latest = await db.select().from(emailDigests)
+    .where(eq(emailDigests.userId, session.user.id))
+    .orderBy(desc(emailDigests.createdAt))
+    .limit(1).then(r => r[0]);
 
   // Actioned email IDs (for client-side filtering)
-  const actionedRecords = await (prisma as any).actionedEmail.findMany({
-    where: { userId: session.user.id },
-    select: { microsoftEmailId: true },
-  });
-  const actionedIds = (actionedRecords as { microsoftEmailId: string }[]).map(r => r.microsoftEmailId);
+  const actionedRecords = await db.select({ microsoftEmailId: actionedEmails.microsoftEmailId })
+    .from(actionedEmails).where(eq(actionedEmails.userId, session.user.id));
+  const actionedIds = actionedRecords.map(r => r.microsoftEmailId);
 
   if (!latest) {
     return NextResponse.json({
@@ -64,26 +67,24 @@ export async function GET(req: NextRequest) {
   };
 
   // Short history (last 7 days - summary only)
-  const history = await prisma.emailDigest.findMany({
-    where: { userId: session.user.id, status: "done" },
-    orderBy: { createdAt: "desc" },
-    take: 7,
-    select: {
-      id: true,
-      scanDate: true,
-      totalScanned: true,
-      clientEmailCount: true,
-      noReplyFiltered: true,
-      missedReplyCount: true,
-      needsReplyCount: true,
-      followUpCount: true,
-      readAgainCount: true,
-      aiSummary: true,
-      status: true,
-      completedAt: true,
-      createdAt: true,
-    },
-  });
+  const history = await db.select({
+    id: emailDigests.id,
+    scanDate: emailDigests.scanDate,
+    totalScanned: emailDigests.totalScanned,
+    clientEmailCount: emailDigests.clientEmailCount,
+    noReplyFiltered: emailDigests.noReplyFiltered,
+    missedReplyCount: emailDigests.missedReplyCount,
+    needsReplyCount: emailDigests.needsReplyCount,
+    followUpCount: emailDigests.followUpCount,
+    readAgainCount: emailDigests.readAgainCount,
+    aiSummary: emailDigests.aiSummary,
+    status: emailDigests.status,
+    completedAt: emailDigests.completedAt,
+    createdAt: emailDigests.createdAt,
+  }).from(emailDigests)
+    .where(eq(emailDigests.userId, session.user.id))
+    .orderBy(desc(emailDigests.createdAt))
+    .limit(7);
 
   return NextResponse.json({
     connected: true,

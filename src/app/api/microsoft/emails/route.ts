@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { microsoftConnections, emailTasks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 import {
-  getValidAccessToken,
   fetchRecentEmails,
   type OutlookEmail,
 } from "@/lib/microsoft-graph";
@@ -25,9 +27,8 @@ export async function GET(req: NextRequest) {
   const unread = searchParams.get("unread") === "true";
 
   // Check connection
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const connection = await db.select().from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id)).limit(1).then(r => r[0]);
 
   if (!connection) {
     return NextResponse.json({ error: "Microsoft not connected" }, { status: 400 });
@@ -48,39 +49,35 @@ export async function GET(req: NextRequest) {
 
   // Store emails for task conversion (upsert)
   for (const email of processedEmails.slice(0, 10)) {
-    // Only store first 10 to avoid overwhelming
-    await prisma.emailTask.upsert({
-      where: { microsoftId: email.id },
-      create: {
-        connectionId: connection.id,
-        userId: session.user.id,
-        microsoftId: email.id,
+    await db.insert(emailTasks).values({
+      id: createId(),
+      connectionId: connection.id,
+      userId: session.user.id,
+      microsoftId: email.id,
+      subject: email.subject,
+      fromEmail: email.from?.email ?? null,
+      fromName: email.from?.name ?? null,
+      receivedAt: email.receivedDateTime,
+      preview: email.bodyPreview?.slice(0, 500) ?? null,
+      webLink: email.webLink,
+      status: "pending",
+    }).onConflictDoUpdate({
+      target: emailTasks.microsoftId,
+      set: {
         subject: email.subject,
         fromEmail: email.from?.email ?? null,
         fromName: email.from?.name ?? null,
         receivedAt: email.receivedDateTime,
         preview: email.bodyPreview?.slice(0, 500) ?? null,
         webLink: email.webLink,
-        status: "pending",
       },
-      update: {
-        subject: email.subject,
-        fromEmail: email.from?.email ?? null,
-        fromName: email.from?.name ?? null,
-        receivedAt: email.receivedDateTime,
-        preview: email.bodyPreview?.slice(0, 500) ?? null,
-        webLink: email.webLink,
-      },
-    }).catch(() => {
-      // Ignore duplicate errors
-    });
+    }).catch(() => {});
   }
 
   // Update last sync time
-  await prisma.microsoftConnection.update({
-    where: { userId: session.user.id },
-    data: { lastEmailSyncAt: new Date() },
-  });
+  await db.update(microsoftConnections)
+    .set({ lastEmailSyncAt: new Date() })
+    .where(eq(microsoftConnections.userId, session.user.id));
 
   return NextResponse.json({
     emails: processedEmails,
