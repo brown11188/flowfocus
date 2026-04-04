@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { scopeChanges } from "@/db/schema";
+import { eq, asc, desc } from "drizzle-orm";
 
 function serialize(item: Record<string, unknown>) {
   return {
@@ -13,7 +15,7 @@ function serialize(item: Record<string, unknown>) {
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const items = await prisma.scopeChange.findMany({ where: { userId: session.user.id }, orderBy: [{ approvalStatus: "asc" }, { createdAt: "desc" }] });
+  const items = await db.select().from(scopeChanges).where(eq(scopeChanges.userId, session.user.id)).orderBy(asc(scopeChanges.status), desc(scopeChanges.createdAt));
   return NextResponse.json(items.map((item) => serialize(item as unknown as Record<string, unknown>)));
 }
 
@@ -21,19 +23,14 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json();
-  const item = await prisma.scopeChange.create({
-    data: {
-      title: String(body.title ?? "").trim(),
-      description: body.description ?? null,
-      projectId: body.projectId,
-      userId: session.user.id,
-      category: body.category ?? "change_request",
-      impactLevel: body.impactLevel ?? "medium",
-      approvalStatus: body.approvalStatus ?? "pending",
-      timelineImpact: body.timelineImpact ?? null,
-      effortHours: body.effortHours !== undefined ? Number(body.effortHours) : null,
-      requestedBy: body.requestedBy ?? null,
-    },
-  });
+  const [item] = await db.insert(scopeChanges).values({
+    title: String(body.title ?? "").trim(),
+    description: body.description ?? null,
+    projectId: body.projectId,
+    userId: session.user.id,
+    status: body.approvalStatus ?? body.status ?? "pending",
+    requestedBy: body.requestedBy ?? null,
+    impact: body.impact ?? null,
+  }).returning();
   return NextResponse.json(serialize(item as unknown as Record<string, unknown>));
 }

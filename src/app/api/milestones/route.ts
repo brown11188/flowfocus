@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { milestones, milestoneTasks, tasks, projects } from "@/db/schema";
+import { eq, and, asc } from "drizzle-orm";
 
 function serializeMilestone(m: Record<string, unknown>) {
   return {
@@ -25,10 +27,28 @@ function serializeTask(t: Record<string, unknown>) {
   };
 }
 
-const MILESTONE_INCLUDE = {
-  tasks: { include: { task: { select: { id: true, title: true, completed: true, priority: true, dueDate: true } } } },
-  _count: { select: { tasks: true } },
-};
+async function getMilestoneWithTasks(milestoneId: string) {
+  const milestone = await db.select().from(milestones).where(eq(milestones.id, milestoneId)).limit(1);
+  if (!milestone[0]) return null;
+
+  const mts = await db
+    .select({
+      milestoneId: milestoneTasks.milestoneId,
+      taskId: milestoneTasks.taskId,
+      task: {
+        id: tasks.id,
+        title: tasks.title,
+        completed: tasks.completed,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+      },
+    })
+    .from(milestoneTasks)
+    .leftJoin(tasks, eq(milestoneTasks.taskId, tasks.id))
+    .where(eq(milestoneTasks.milestoneId, milestoneId));
+
+  return { ...milestone[0], tasks: mts, _count: { tasks: mts.length } };
+}
 
 // GET /api/milestones?projectId=xxx
 export async function GET(req: NextRequest) {
@@ -36,17 +56,44 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const projectId = req.nextUrl.searchParams.get("projectId");
-  const where = projectId
-    ? { projectId, project: { userId: session.user.id } }
-    : { project: { userId: session.user.id } };
 
-  const milestones = await prisma.milestone.findMany({
-    where,
-    include: MILESTONE_INCLUDE,
-    orderBy: { targetDate: "asc" },
-  });
+  // Get authorized project IDs
+  const userProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.userId, session.user.id));
+  const projectIds = userProjects.map((p) => p.id);
 
-  return NextResponse.json(milestones.map((m) => serializeMilestone(m as unknown as Record<string, unknown>)));
+  let milestoneRows;
+  if (projectId) {
+    if (!projectIds.includes(projectId)) return NextResponse.json([]);
+    milestoneRows = await db.select().from(milestones).where(eq(milestones.projectId, projectId)).orderBy(asc(milestones.targetDate));
+  } else {
+    const { inArray } = await import("drizzle-orm");
+    milestoneRows = projectIds.length
+      ? await db.select().from(milestones).where(inArray(milestones.projectId, projectIds)).orderBy(asc(milestones.targetDate))
+      : [];
+  }
+
+  const results = await Promise.all(
+    milestoneRows.map(async (m) => {
+      const mts = await db
+        .select({
+          milestoneId: milestoneTasks.milestoneId,
+          taskId: milestoneTasks.taskId,
+          task: {
+            id: tasks.id,
+            title: tasks.title,
+            completed: tasks.completed,
+            priority: tasks.priority,
+            dueDate: tasks.dueDate,
+          },
+        })
+        .from(milestoneTasks)
+        .leftJoin(tasks, eq(milestoneTasks.taskId, tasks.id))
+        .where(eq(milestoneTasks.milestoneId, m.id));
+      return { ...m, tasks: mts, _count: { tasks: mts.length } };
+    })
+  );
+
+  return NextResponse.json(results.map((m) => serializeMilestone(m as unknown as Record<string, unknown>)));
 }
 
 // POST /api/milestones
@@ -59,13 +106,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name, targetDate, projectId required" }, { status: 400 });
   }
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, userId: session.user.id } });
+  const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id))).limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const milestone = await prisma.milestone.create({
-    data: { name: name.trim(), description, targetDate: new Date(targetDate), projectId },
-    include: MILESTONE_INCLUDE,
-  });
+  const [milestone] = await db.insert(milestones).values({
+    name: name.trim(),
+    description,
+    targetDate: new Date(targetDate),
+    projectId,
+  }).returning();
 
-  return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));
+  const result = await getMilestoneWithTasks(milestone.id);
+  return NextResponse.json(serializeMilestone(result as unknown as Record<string, unknown>));
 }

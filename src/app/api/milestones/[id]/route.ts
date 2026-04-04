@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { milestones, milestoneTasks, tasks } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 function serializeMilestone(m: Record<string, unknown>) {
   return {
@@ -18,10 +20,28 @@ function serializeMilestone(m: Record<string, unknown>) {
   };
 }
 
-const MILESTONE_INCLUDE = {
-  tasks: { include: { task: { select: { id: true, title: true, completed: true, priority: true, dueDate: true } } } },
-  _count: { select: { tasks: true } },
-};
+async function getMilestoneWithTasks(milestoneId: string) {
+  const [milestone] = await db.select().from(milestones).where(eq(milestones.id, milestoneId)).limit(1);
+  if (!milestone) return null;
+
+  const mts = await db
+    .select({
+      milestoneId: milestoneTasks.milestoneId,
+      taskId: milestoneTasks.taskId,
+      task: {
+        id: tasks.id,
+        title: tasks.title,
+        completed: tasks.completed,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+      },
+    })
+    .from(milestoneTasks)
+    .leftJoin(tasks, eq(milestoneTasks.taskId, tasks.id))
+    .where(eq(milestoneTasks.milestoneId, milestoneId));
+
+  return { ...milestone, tasks: mts, _count: { tasks: mts.length } };
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -34,12 +54,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.description !== undefined) updates.description = body.description;
   if (body.targetDate !== undefined) updates.targetDate = new Date(body.targetDate);
 
-  const milestone = await prisma.milestone.update({
-    where: { id },
-    data: updates,
-    include: MILESTONE_INCLUDE,
-  });
-  return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));
+  await db.update(milestones).set(updates).where(eq(milestones.id, id));
+  const result = await getMilestoneWithTasks(id);
+  return NextResponse.json(serializeMilestone(result as unknown as Record<string, unknown>));
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -47,7 +64,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  await prisma.milestone.delete({ where: { id } });
+  await db.delete(milestones).where(eq(milestones.id, id));
   return NextResponse.json({ success: true });
 }
 
@@ -60,15 +77,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { action, taskId } = await req.json();
 
   if (action === "link") {
-    await prisma.milestoneTask.upsert({
-      where: { milestoneId_taskId: { milestoneId: id, taskId } },
-      update: {},
-      create: { milestoneId: id, taskId },
-    });
+    await db.insert(milestoneTasks).values({ milestoneId: id, taskId }).onConflictDoNothing();
   } else if (action === "unlink") {
-    await prisma.milestoneTask.deleteMany({ where: { milestoneId: id, taskId } });
+    await db.delete(milestoneTasks).where(and(eq(milestoneTasks.milestoneId, id), eq(milestoneTasks.taskId, taskId)));
   }
 
-  const milestone = await prisma.milestone.findUnique({ where: { id }, include: MILESTONE_INCLUDE });
-  return NextResponse.json(serializeMilestone(milestone as unknown as Record<string, unknown>));
+  const result = await getMilestoneWithTasks(id);
+  return NextResponse.json(serializeMilestone(result as unknown as Record<string, unknown>));
 }

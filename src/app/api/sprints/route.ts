@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { sprints, projects } from "@/db/schema";
+import { eq, and, desc, count } from "drizzle-orm";
 
 function serializeSprint(s: Record<string, unknown>) {
   return {
@@ -20,13 +22,21 @@ export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
-  const sprints = await prisma.sprint.findMany({
-    where: { projectId, project: { userId: session.user.id } },
-    include: { _count: { select: { tasks: true } } },
-    orderBy: { startDate: "desc" },
-  });
+  const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id))).limit(1);
+  if (!project) return NextResponse.json([]);
 
-  return NextResponse.json(sprints.map((s) => serializeSprint(s as unknown as Record<string, unknown>)));
+  const sprintRows = await db.select().from(sprints).where(eq(sprints.projectId, projectId)).orderBy(desc(sprints.startDate));
+
+  // Build _count for each sprint
+  const { tasks } = await import("@/db/schema");
+  const results = await Promise.all(
+    sprintRows.map(async (s) => {
+      const [{ value }] = await db.select({ value: count() }).from(tasks).where(eq(tasks.sprintId, s.id));
+      return { ...s, _count: { tasks: value } };
+    })
+  );
+
+  return NextResponse.json(results.map((s) => serializeSprint(s as unknown as Record<string, unknown>)));
 }
 
 // POST /api/sprints
@@ -39,13 +49,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name, startDate, endDate, projectId required" }, { status: 400 });
   }
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, userId: session.user.id } });
+  const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id))).limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const sprint = await prisma.sprint.create({
-    data: { name: name.trim(), goal, startDate: new Date(startDate), endDate: new Date(endDate), projectId },
-    include: { _count: { select: { tasks: true } } },
-  });
+  const [sprint] = await db.insert(sprints).values({
+    name: name.trim(),
+    goal,
+    startDate: new Date(startDate),
+    endDate: new Date(endDate),
+    projectId,
+  }).returning();
 
-  return NextResponse.json(serializeSprint(sprint as unknown as Record<string, unknown>));
+  return NextResponse.json(serializeSprint({ ...sprint, _count: { tasks: 0 } } as unknown as Record<string, unknown>));
 }
