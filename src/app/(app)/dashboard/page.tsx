@@ -19,6 +19,7 @@ import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 import { getTodayStrInTz } from "@/lib/timezone";
 import { useDashboardWidgets } from "@/hooks/use-dashboard-widgets";
 import { WeeklyGoals } from "@/components/features/weekly-goals";
+import { useSWRFetch } from "@/hooks/use-swr-fetch";
 
 interface Sprint {
   id: string; name: string; goal?: string;
@@ -33,18 +34,12 @@ export default function DashboardPage() {
   const { timezone } = useTimezoneCtx();
   const { widgets, toggleWidget, isEnabled } = useDashboardWidgets();
   const [showCustomize, setShowCustomize] = useState(false);
-  const [stats, setStats] = useState<Stats | null>(null);
+  // TECH-01: Stale-while-revalidate for stats
+  const { data: swrStats, isRevalidating: statsRevalidating, revalidate: revalidateStats } = useSWRFetch<Stats>("/api/stats", { maxAge: 3 * 60 * 1000 });
+  const stats = swrStats;
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [sprintDone, setSprintDone] = useState(0);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/stats");
-      const data = await res.json();
-      setStats(data);
-    } catch { /* silent */ }
-  }, []);
 
   const loadActiveSprint = useCallback(async () => {
     const nonInbox = projects.filter(p => !p.isInbox);
@@ -66,17 +61,13 @@ export default function DashboardPage() {
   }, [projects, tasks]);
 
   useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-
-  useEffect(() => {
     if (projects.length > 0) loadActiveSprint();
   }, [projects.length]); // eslint-disable-line
 
   const handleComplete = async (id: string, completed: boolean) => {
     updateTask(id, { completed, completedAt: completed ? new Date().toISOString() : null });
     await apiFetch("/api/tasks/" + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed }) });
-    if (completed) loadStats();
+    if (completed) revalidateStats();
   };
 
   const handleEdit = async (id: string, data: Partial<Task>) => {

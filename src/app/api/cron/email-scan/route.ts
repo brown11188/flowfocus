@@ -18,7 +18,7 @@ export const maxDuration = 300; // 5 minutes max for batch processing
  *
  * Or configure via crontab / external cron service:
  *   # 7:00 AM GMT+7 = 00:00 UTC
- *   0 0 * * * curl -s -H "Authorization: Bearer $CRON_SECRET" https://your-domain.com/apps/xklwb3f46m48u5s4h2h5d4pd/api/cron/email-scan
+ *   0 0 * * * curl -s -H "Authorization: Bearer $CRON_SECRET" https://your-domain.com/api/cron/email-scan
  */
 export async function GET(req: NextRequest) {
   // Verify cron secret

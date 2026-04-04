@@ -1,9 +1,10 @@
 import { PrismaClient } from '../src/generated/prisma/client/client'
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+import { PrismaPg } from '@prisma/adapter-pg'
+import pg from 'pg'
 
-const url     = process.env.DATABASE_URL ?? 'file:./data/app.db'
-const adapter = new PrismaBetterSqlite3({ url })
-const prisma  = new PrismaClient({ adapter })
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+const adapter = new PrismaPg(pool)
+const prisma = new PrismaClient({ adapter })
 
 // Pre-computed bcrypt hash for "password123" (cost 12)
 const DEMO_PASSWORD_HASH = "$2b$12$1OT3gZ8bRWXqq1SZfznox.kAOVBWOFjK2BPXTIGFo2tKL56OuwHuu";
@@ -363,4 +364,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    await pool.end();
   });

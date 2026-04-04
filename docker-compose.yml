@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for local development
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flowfocus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Full production-like deployment
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/flowfocus?schema=public
+      - NEXT_PUBLIC_BASE_PATH=
+      - NEXTAUTH_URL=http://localhost:3000
+      - AUTH_URL=http://localhost:3000/api/auth
+      - AUTH_SECRET=dev-secret-change-in-production
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local

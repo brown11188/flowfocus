@@ -8,14 +8,14 @@ import { NextRequest, NextResponse } from "next/server";
  *   regex: ^${config.basePath}(.+)
  *   split captured suffix by "/" — must produce 1 or 2 non-empty segments.
  *
- * Our config.basePath = "/apps/xklwb3f46m48u5s4h2h5d4pd/api/auth"
+ * Our config.basePath = `${APP_BASE}/api/auth`
  * So the full request URL passed to handlers must look like:
- *   https://buildwith.agentcrew.dev/apps/xklwb3f46m48u5s4h2h5d4pd/api/auth/session
+ *   https://your-domain.example${APP_BASE}/api/auth/session
  *
  * The Problem:
- * 1. nginx proxies: https://host/apps/xklwb3f46m48u5s4h2h5d4pd/api/auth/session
+ * 1. reverse proxy forwards: https://host${APP_BASE}/api/auth/session
  * 2. Next.js STRIPS basePath from req.nextUrl.pathname before this handler runs:
- *    pathname = /api/auth/session   (no /apps/xklwb3f46m48u5s4h2h5d4pd prefix)
+ *    pathname = /api/auth/session   (no basePath prefix)
  * 3. req.nextUrl reflects the internal Docker network (http://container:3000)
  *    not the public HTTPS host.
  *
@@ -97,7 +97,7 @@ function rewriteRequest(req: NextRequest): NextRequest {
   const _protocol = protocol.endsWith(":") ? protocol : `${protocol}:`;
 
   // pathname at this point is /api/auth/<action> because Next.js strips
-  // the basePath (/apps/xklwb3f46m48u5s4h2h5d4pd) before routing.
+  // the configured basePath before routing.
   // We must restore it so @auth/core can match config.basePath correctly.
   //
   // Guard against double-prepend: only prepend APP_BASE if pathname does NOT

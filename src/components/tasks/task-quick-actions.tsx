@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Calendar, Flag, FolderOpen, Timer, X } from "lucide-react";
+import { Calendar, Flag, FolderOpen, Timer, X, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/store/task-store";
 
@@ -21,7 +21,7 @@ const PRIORITIES = [
 ];
 
 export function TaskQuickActions({ taskId, currentPriority, currentDueDate, currentProjectId, onEdit, visible }: TaskQuickActionsProps) {
-  const [activePicker, setActivePicker] = useState<"priority" | "date" | "project" | null>(null);
+  const [activePicker, setActivePicker] = useState<"priority" | "date" | "project" | "recurrence" | null>(null);
   const { projects } = useTaskStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -80,6 +80,15 @@ export function TaskQuickActions({ taskId, currentPriority, currentDueDate, curr
         title="Start focus session"
       >
         <Timer className="w-3.5 h-3.5" />
+      </button>
+
+      {/* FEAT-02: Set recurrence */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setActivePicker(activePicker === "recurrence" ? null : "recurrence"); }}
+        className="p-1 rounded-md text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-colors"
+        title="Set recurrence"
+      >
+        <RefreshCw className="w-3.5 h-3.5" />
       </button>
 
       {/* Priority Picker Popover */}
@@ -158,6 +167,33 @@ export function TaskQuickActions({ taskId, currentPriority, currentDueDate, curr
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
               <span className="truncate">{p.name}</span>
               {currentProjectId === p.id && <span className="ml-auto text-[10px]">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Recurrence Picker Popover */}
+      {activePicker === "recurrence" && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-1.5 min-w-[140px]">
+          {[
+            { label: "🔁 Daily", value: "DAILY" },
+            { label: "📅 Weekly", value: "WEEKLY" },
+            { label: "🗓️ Monthly", value: "MONTHLY" },
+            { label: "❌ No recurrence", value: null },
+          ].map(opt => (
+            <button
+              key={opt.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(taskId, {
+                  recurrenceRule: opt.value,
+                  recurrenceInterval: opt.value ? 1 : null,
+                });
+                setActivePicker(null);
+              }}
+              className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              {opt.label}
             </button>
           ))}
         </div>

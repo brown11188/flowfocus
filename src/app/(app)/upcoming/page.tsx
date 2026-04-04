@@ -7,6 +7,7 @@ import { useTimezoneCtx } from "@/components/layout/timezone-provider";
 import { getTodayStrInTz } from "@/lib/timezone";
 import { InlineAddTask } from "@/components/tasks/inline-add-task";
 import { UpcomingCalendar } from "@/components/calendar/upcoming-calendar";
+import { UpcomingWeekView } from "@/components/calendar/upcoming-week-view";
 import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
 import { ClickUpBadge } from "@/components/clickup/clickup-badge";
 import { toast } from "sonner";
@@ -320,7 +321,7 @@ function DayColumn({
 export default function UpcomingPage() {
   const { tasks, updateTask, removeTask } = useTaskStore();
   const { timezone } = useTimezoneCtx();
-  const [view, setView] = useState<"list" | "calendar">("list");
+  const [view, setView] = useState<"list" | "calendar" | "week">("list");
   const [startOffset, setStartOffset] = useState(0); // which day-window we're viewing
   const WINDOW = 5; // always show exactly 5 days
 
@@ -471,6 +472,18 @@ export default function UpcomingPage() {
               <span className="hidden sm:inline">List</span>
             </button>
             <button
+              onClick={() => setView("week")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                view === "week"
+                  ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700",
+              )}
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span className="hidden sm:inline">Week</span>
+            </button>
+            <button
               onClick={() => setView("calendar")}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
@@ -480,7 +493,7 @@ export default function UpcomingPage() {
               )}
             >
               <Calendar className="w-4 h-4" />
-              <span className="hidden sm:inline">Calendar</span>
+              <span className="hidden sm:inline">Month</span>
             </button>
           </div>
         </div>
@@ -490,6 +503,13 @@ export default function UpcomingPage() {
       <div className="flex-1 overflow-auto px-3 sm:px-6 pb-6">
         {view === "calendar" ? (
           <UpcomingCalendar
+            tasks={tasks}
+            onComplete={handleComplete}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
+        ) : view === "week" ? (
+          <UpcomingWeekView
             tasks={tasks}
             onComplete={handleComplete}
             onEdit={handleEdit}

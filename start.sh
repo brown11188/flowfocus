@@ -47,19 +47,11 @@ fi
 # NextAuth v5 does not use NEXTAUTH_URL directly; AUTH_URL takes precedence.
 echo "NEXTAUTH_URL: ${NEXTAUTH_URL:-<not set>}"
 
-echo "Initializing database..."
-DB_PATH=$(echo "$DATABASE_URL" | sed 's|^file:||')
-DB_DIR=$(dirname "$DB_PATH")
-mkdir -p "$DB_DIR"
-
-if [ ! -f "$DB_PATH" ]; then
-  echo "No database found — creating empty DB file for migration container..."
-  touch "$DB_PATH"
-  # File is owned by nextjs (current user) — no broad chmod needed
-  echo "Empty DB created at $DB_PATH"
-else
-  echo "Database exists at $DB_PATH"
+if [ -z "$DATABASE_URL" ]; then
+  echo "ERROR: DATABASE_URL is not set"
+  exit 1
 fi
 
+echo "Database URL detected (PostgreSQL expected)."
 echo "Starting Next.js server..."
 exec node server.js
