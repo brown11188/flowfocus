@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { tasks } from "@/db/schema";
-import { eq, and, gte, lt, isNotNull, isNull, count } from "drizzle-orm";
+import { eq, and, or, gte, lt, isNotNull, count } from "drizzle-orm";
 
 export async function GET() {
   const session = await auth();
@@ -59,7 +59,7 @@ export async function GET() {
   );
 
   const [{ value: blockedCount }] = await db.select({ value: count() }).from(tasks).where(
-    and(eq(tasks.userId, session.user.id), eq(tasks.isDeleted, false), eq(tasks.completed, false), isNotNull(tasks.blockedAt))
+    and(eq(tasks.userId, session.user.id), eq(tasks.isDeleted, false), eq(tasks.completed, false), or(isNotNull(tasks.waitingOn), isNotNull(tasks.blockedAt)))
   );
 
   return NextResponse.json({
