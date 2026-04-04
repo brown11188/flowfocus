@@ -1,14 +1,4 @@
 #!/usr/bin/env tsx
-/**
- * FlowFocus PostgreSQL migration runner.
- *
- * Called by the deployment pipeline as: npm run db:migrate
- * Also called manually for local development.
- *
- * Uses `prisma migrate deploy` against the fresh PostgreSQL baseline migration
- * in prisma/migrations/0001_baseline/.
- */
-
 import { execSync } from 'child_process'
 
 const MAX_RETRIES = 15
@@ -45,8 +35,8 @@ function isRetryableError(err: unknown): boolean {
 async function runMigrations(): Promise<void> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`  > npx prisma migrate deploy (attempt ${attempt}/${MAX_RETRIES})`)
-      execSync('npx prisma migrate deploy', { stdio: 'inherit' })
+      console.log(`  > npx drizzle-kit migrate (attempt ${attempt}/${MAX_RETRIES})`)
+      execSync('npx drizzle-kit migrate', { stdio: 'inherit' })
       console.log('✅ Migrations applied successfully.')
       return
     } catch (err) {
@@ -86,7 +76,7 @@ async function seedIfEmpty(): Promise<void> {
 }
 
 async function main() {
-  console.log('🚀 FlowFocus — applying PostgreSQL migrations...')
+  console.log('🚀 FlowFocus — applying Drizzle migrations...')
   await runMigrations()
   await seedIfEmpty()
 }

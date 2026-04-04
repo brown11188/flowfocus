@@ -14,11 +14,11 @@ export async function POST(req: NextRequest) {
   if (blockedTaskId === blockingTaskId) return NextResponse.json({ error: "Task cannot block itself" }, { status: 400 });
 
   // Verify both tasks belong to this user
-  const [blockedTask, blockingTask] = await Promise.all([
+  const [[blockedTask], [blockingTask]] = await Promise.all([
     db.select().from(tasks).where(and(eq(tasks.id, blockedTaskId), eq(tasks.userId, session.user.id))).limit(1),
     db.select().from(tasks).where(and(eq(tasks.id, blockingTaskId), eq(tasks.userId, session.user.id))).limit(1),
   ]);
-  if (!blockedTask[0] || !blockingTask[0]) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  if (!blockedTask || !blockingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
   // Circular dependency check (simple: ensure blockingTask is not itself blocked by blockedTask)
   const [circular] = await db
