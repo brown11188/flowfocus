@@ -35,9 +35,9 @@ dist/
 data/
 
 # ===========================
-# Prisma Generated Client
+# Drizzle
 # ===========================
-src/generated/
+drizzle/meta/
 
 # ===========================
 # Logs

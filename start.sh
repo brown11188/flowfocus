@@ -14,8 +14,6 @@ else
 fi
 
 # ── Secret normalisation ────────────────────────────────────────────────────
-# NextAuth v5 requires AUTH_SECRET. The platform may provide it under any of
-# these names; promote whichever one is present.
 if [ -z "$AUTH_SECRET" ]; then
   if [ -n "$NEXTAUTH_SECRET" ]; then
     export AUTH_SECRET="$NEXTAUTH_SECRET"
@@ -30,21 +28,17 @@ if [ -z "$AUTH_SECRET" ]; then
 fi
 
 # ── Canonical URL (AUTH_URL) ─────────────────────────────────────────────────
-# AUTH_URL is injected directly by the deployment script as:
-#   https://buildwith.agentcrew.dev/apps/<id>/api/auth
-#
-# This is consumed by @auth/core (NextAuth v5) to build OAuth callback URLs
-# and is the single source of truth. Do NOT re-derive it from NEXTAUTH_URL.
-#
-# Plan B (deployment script) ensures AUTH_URL is always injected correctly.
+if [ -n "$NEXTAUTH_URL" ]; then
+  APP_ROOT=$(echo "$NEXTAUTH_URL" | sed 's|/*$||')
+  export AUTH_URL="${APP_ROOT}/api/auth"
+  export NEXTAUTH_URL="$APP_ROOT"
+fi
+
 if [ -z "$AUTH_URL" ]; then
   echo "WARNING: AUTH_URL is not set — NextAuth callbacks will not work!"
-  echo "         Expected format: https://your-domain/apps/<project-id>/api/auth"
 else
   echo "AUTH_URL: $AUTH_URL"
 fi
-# Keep NEXTAUTH_URL as-is (injected by deploy script as app root URL).
-# NextAuth v5 does not use NEXTAUTH_URL directly; AUTH_URL takes precedence.
 echo "NEXTAUTH_URL: ${NEXTAUTH_URL:-<not set>}"
 
 if [ -z "$DATABASE_URL" ]; then
@@ -52,6 +46,6 @@ if [ -z "$DATABASE_URL" ]; then
   exit 1
 fi
 
-echo "Database URL detected (PostgreSQL expected)."
+echo "Database URL detected (PostgreSQL/Neon expected)."
 echo "Starting Next.js server..."
 exec node server.js

@@ -1,18 +1,54 @@
+# Version control
 .git
 .gitignore
+
+# Build outputs
 .next
 node_modules
-npm-debug.log
-.env*.local
-.env.production
+out/
+build/
+dist/
+
+# Environment files
 .env
+.env.*
+!.env.example
+
+# IDE
 .vscode
 .idea
-*.md
+*.swp
+
+# OS files
 .DS_Store
-coverage
-*.log
+Thumbs.db
+
+# Database files
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
 data/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Documentation (not needed in container)
+*.md
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Dead legacy files (safe to ignore)
+prisma/
+prisma.config.ts
+src/generated/
+gen.db
+migrate-tz.*
+
+# Misc
+.vercel
+.turbo
+tsconfig.tsbuildinfo

@@ -30,8 +30,8 @@ FlowFocus is a self-hosted, AI-powered task and project management application. 
 - **Friday AI Assistant** — Daily briefings, smart recommendations, and a conversational planning interface.
 - **Project & Sprint Management** — Kanban boards, milestone tracking, sprint planning, decision logs, and scope-change tracking.
 - **Time Tracking** — Focus sessions (Pomodoro-style), time logs, time blocking, and smart deadline suggestions.
-- **Email Integration** — Scan an IMAP inbox, turn emails into tasks, and generate daily email digests.
-- **ClickUp Sync** — Two-way sync with ClickUp workspaces and spaces.
+- **Email Intelligence** — AI-powered daily Outlook inbox scan with missed reply, needs reply, follow-up, and read-again classification.
+- **ClickUp Hub** — Read-only task browser for ClickUp workspaces with AI-powered workspace reports.
 - **Microsoft 365 Integration** — Read Outlook calendar events, import emails, and send Teams notifications.
 - **Google Sign-In** — OAuth login via Google.
 - **PWA / Offline Support** — Installable as a Progressive Web App with offline task access.
@@ -48,8 +48,8 @@ FlowFocus is a self-hosted, AI-powered task and project management application. 
 | Icons | [Lucide React](https://lucide.dev/) |
 | State | [Zustand](https://zustand-demo.pmnd.rs/) |
 | Auth | [NextAuth v5](https://authjs.dev/) (Credentials, Google, Microsoft Entra ID) |
-| Database | [SQLite](https://www.sqlite.org/) via [Prisma ORM](https://www.prisma.io/) + [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) |
-| AI / LLM | [DeepInfra](https://deepinfra.com/) (default model: `zai-org/GLM-5`) |
+| Database | [Neon PostgreSQL](https://neon.tech/) via [Drizzle ORM](https://orm.drizzle.team/) |
+| AI / LLM | [DeepInfra](https://deepinfra.com/) (default model: `meta-llama/Llama-3.3-70B-Instruct-Turbo`) |
 | Email | [Nodemailer](https://nodemailer.com/) |
 | Drag & Drop | [@dnd-kit](https://dndkit.com/) |
 | Notifications | [Sonner](https://sonner.emilkowal.ski/) |
