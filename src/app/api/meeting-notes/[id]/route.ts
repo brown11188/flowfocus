@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { meetingNotes } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 function serialize(item: Record<string, unknown>) {
   return {
@@ -18,9 +20,11 @@ export async function GET(
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const item = await prisma.meetingNote.findFirst({
-    where: { id, userId: session.user.id },
-  });
+  const [item] = await db
+    .select()
+    .from(meetingNotes)
+    .where(and(eq(meetingNotes.id, id), eq(meetingNotes.userId, session.user.id)))
+    .limit(1);
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(serialize(item as unknown as Record<string, unknown>));
 }
@@ -33,9 +37,11 @@ export async function PATCH(
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
-  const existing = await prisma.meetingNote.findFirst({
-    where: { id, userId: session.user.id },
-  });
+  const [existing] = await db
+    .select()
+    .from(meetingNotes)
+    .where(and(eq(meetingNotes.id, id), eq(meetingNotes.userId, session.user.id)))
+    .limit(1);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
@@ -47,7 +53,11 @@ export async function PATCH(
   if (body.decisions !== undefined) data.decisions = body.decisions;
   if (body.actionItems !== undefined) data.actionItems = body.actionItems;
 
-  const updated = await prisma.meetingNote.update({ where: { id }, data });
+  const [updated] = await db
+    .update(meetingNotes)
+    .set(data as Partial<typeof meetingNotes.$inferInsert>)
+    .where(eq(meetingNotes.id, id))
+    .returning();
   return NextResponse.json(serialize(updated as unknown as Record<string, unknown>));
 }
 
@@ -58,10 +68,13 @@ export async function DELETE(
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const existing = await prisma.meetingNote.findFirst({
-    where: { id, userId: session.user.id },
-  });
+  const [existing] = await db
+    .select()
+    .from(meetingNotes)
+    .where(and(eq(meetingNotes.id, id), eq(meetingNotes.userId, session.user.id)))
+    .limit(1);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  await prisma.meetingNote.delete({ where: { id } });
+  await db.delete(meetingNotes).where(eq(meetingNotes.id, id));
   return NextResponse.json({ success: true });
 }
+

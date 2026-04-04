@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { timeLogs } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  await prisma.timeLog.deleteMany({ where: { id, userId: session.user.id } });
+  await db.delete(timeLogs).where(and(eq(timeLogs.id, id), eq(timeLogs.userId, session.user.id)));
   return NextResponse.json({ success: true });
 }

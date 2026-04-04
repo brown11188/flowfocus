@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { timeBlocks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -11,25 +13,23 @@ export async function PATCH(
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const body = await req.json();
 
-  const existing = await prisma.timeBlock.findUnique({ where: { id } });
+  const [existing] = await db.select().from(timeBlocks).where(eq(timeBlocks.id, id)).limit(1);
   if (!existing || existing.userId !== session.user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const block = await prisma.timeBlock.update({
-    where: { id },
-    data: {
-      ...(body.title !== undefined && { title: body.title }),
-      ...(body.startTime !== undefined && { startTime: body.startTime }),
-      ...(body.endTime !== undefined && { endTime: body.endTime }),
-      ...(body.date !== undefined && { date: body.date }),
-      ...(body.color !== undefined && { color: body.color }),
-      ...(body.note !== undefined && { note: body.note }),
-      ...(body.taskId !== undefined && { taskId: body.taskId }),
-    },
-  });
+  const body = await req.json();
+  const data: Partial<typeof timeBlocks.$inferInsert> = {};
+  if (body.title !== undefined) data.title = body.title;
+  if (body.startTime !== undefined) data.startTime = body.startTime;
+  if (body.endTime !== undefined) data.endTime = body.endTime;
+  if (body.date !== undefined) data.date = body.date;
+  if (body.color !== undefined) data.color = body.color;
+  if (body.note !== undefined) data.note = body.note;
+  if (body.taskId !== undefined) data.taskId = body.taskId;
+
+  const [block] = await db.update(timeBlocks).set(data).where(eq(timeBlocks.id, id)).returning();
   return NextResponse.json(block);
 }
 
@@ -41,11 +41,11 @@ export async function DELETE(
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
-  const existing = await prisma.timeBlock.findUnique({ where: { id } });
+  const [existing] = await db.select().from(timeBlocks).where(eq(timeBlocks.id, id)).limit(1);
   if (!existing || existing.userId !== session.user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await prisma.timeBlock.delete({ where: { id } });
+  await db.delete(timeBlocks).where(eq(timeBlocks.id, id));
   return NextResponse.json({ success: true });
 }

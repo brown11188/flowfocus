@@ -5,7 +5,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpReports, clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import {
   ClickUpClient,
   normalizeTask,
@@ -50,10 +52,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "workspaceConnectionId is required" }, { status: 400 });
   }
 
-  // Get the workspace connection
-  const workspaceConn = await prisma.clickUpWorkspaceConnection.findUnique({
-    where: { id: body.workspaceConnectionId },
-    include: { connection: true },
+  // Get the workspace connection with its parent connection (for the access token)
+  const workspaceConn = await db.query.clickUpWorkspaceConnections.findFirst({
+    where: (w, { eq }) => eq(w.id, body.workspaceConnectionId!),
+    with: { connection: true },
   });
 
   if (!workspaceConn || workspaceConn.userId !== session.user.id) {
@@ -87,8 +89,9 @@ export async function POST(req: NextRequest) {
     );
 
     // Persist the report
-    const report = await prisma.clickUpReport.create({
-      data: {
+    const [report] = await db
+      .insert(clickUpReports)
+      .values({
         connectionId: workspaceConn.connectionId,
         workspaceId: workspaceConn.teamId,
         workspaceName: workspaceConn.teamName,
@@ -97,14 +100,14 @@ export async function POST(req: NextRequest) {
         analysis,
         taskCount: stats.total,
         overdueCount: stats.overdue,
-      },
-    });
+      })
+      .returning();
 
     // Update lastSyncedAt
-    await prisma.clickUpWorkspaceConnection.update({
-      where: { id: workspaceConn.id },
-      data: { lastSyncedAt: new Date() },
-    });
+    await db
+      .update(clickUpWorkspaceConnections)
+      .set({ lastSyncedAt: new Date() })
+      .where(eq(clickUpWorkspaceConnections.id, workspaceConn.id));
 
     return NextResponse.json({
       report: {
@@ -124,3 +127,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+

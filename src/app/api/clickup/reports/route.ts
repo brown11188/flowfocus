@@ -5,7 +5,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { clickUpReports, clickUpWorkspaceConnections } from "@/lib/db/schema";
+import { eq, and, desc, inArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -17,26 +19,33 @@ export async function GET(req: NextRequest) {
 
   const wsConnId = req.nextUrl.searchParams.get("workspaceConnectionId");
 
-  // Fetch reports belonging to the user's workspace connections
-  const reports = await prisma.clickUpReport.findMany({
-    where: {
-      workspaceConnection: {
-        userId: session.user.id,
-        ...(wsConnId ? { id: wsConnId } : {}),
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      workspaceName: true,
-      workspaceConnectionId: true,
-      taskCount: true,
-      overdueCount: true,
-      analysis: true,
-      createdAt: true,
-    },
-  });
+  // Find the user's workspace connection IDs (optionally filtered)
+  const connConditions = [eq(clickUpWorkspaceConnections.userId, session.user.id)];
+  if (wsConnId) connConditions.push(eq(clickUpWorkspaceConnections.id, wsConnId));
+
+  const userConns = await db
+    .select({ id: clickUpWorkspaceConnections.id })
+    .from(clickUpWorkspaceConnections)
+    .where(and(...connConditions));
+
+  if (userConns.length === 0) {
+    return NextResponse.json({ reports: [] });
+  }
+
+  const reports = await db
+    .select({
+      id: clickUpReports.id,
+      workspaceName: clickUpReports.workspaceName,
+      workspaceConnectionId: clickUpReports.workspaceConnectionId,
+      taskCount: clickUpReports.taskCount,
+      overdueCount: clickUpReports.overdueCount,
+      analysis: clickUpReports.analysis,
+      createdAt: clickUpReports.createdAt,
+    })
+    .from(clickUpReports)
+    .where(inArray(clickUpReports.workspaceConnectionId, userConns.map((c) => c.id)))
+    .orderBy(desc(clickUpReports.createdAt))
+    .limit(50);
 
   return NextResponse.json({ reports });
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { tasks, taskDependencies } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 // POST /api/dependencies
 export async function POST(req: NextRequest) {
@@ -13,25 +15,26 @@ export async function POST(req: NextRequest) {
 
   // Verify both tasks belong to this user
   const [blockedTask, blockingTask] = await Promise.all([
-    prisma.task.findFirst({ where: { id: blockedTaskId, userId: session.user.id } }),
-    prisma.task.findFirst({ where: { id: blockingTaskId, userId: session.user.id } }),
+    db.select().from(tasks).where(and(eq(tasks.id, blockedTaskId), eq(tasks.userId, session.user.id))).limit(1).then(r => r[0]),
+    db.select().from(tasks).where(and(eq(tasks.id, blockingTaskId), eq(tasks.userId, session.user.id))).limit(1).then(r => r[0]),
   ]);
   if (!blockedTask || !blockingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
-  // Circular dependency check (simple: ensure blockingTask is not itself blocked by blockedTask)
-  const circular = await prisma.taskDependency.findFirst({
-    where: { blockedTaskId: blockingTaskId, blockingTaskId: blockedTaskId },
-  });
+  // Circular dependency check
+  const [circular] = await db
+    .select()
+    .from(taskDependencies)
+    .where(and(eq(taskDependencies.blockedTaskId, blockingTaskId), eq(taskDependencies.blockingTaskId, blockedTaskId)))
+    .limit(1);
   if (circular) return NextResponse.json({ error: "Circular dependency detected" }, { status: 400 });
 
-  const dep = await prisma.taskDependency.upsert({
-    where: { blockedTaskId_blockingTaskId: { blockedTaskId, blockingTaskId } },
-    update: {},
-    create: { blockedTaskId, blockingTaskId },
-    include: { blockingTask: { select: { id: true, title: true, completed: true } } },
-  });
+  const [dep] = await db
+    .insert(taskDependencies)
+    .values({ blockedTaskId, blockingTaskId })
+    .onConflictDoNothing()
+    .returning();
 
-  return NextResponse.json(dep);
+  return NextResponse.json(dep ?? { blockedTaskId, blockingTaskId });
 }
 
 // DELETE /api/dependencies
@@ -40,6 +43,8 @@ export async function DELETE(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { blockedTaskId, blockingTaskId } = await req.json();
-  await prisma.taskDependency.deleteMany({ where: { blockedTaskId, blockingTaskId } });
+  await db
+    .delete(taskDependencies)
+    .where(and(eq(taskDependencies.blockedTaskId, blockedTaskId), eq(taskDependencies.blockingTaskId, blockingTaskId)));
   return NextResponse.json({ success: true });
 }
