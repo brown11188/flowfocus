@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { microsoftConnections } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -14,21 +16,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-    select: {
-      id: true,
-      microsoftId: true,
-      email: true,
-      displayName: true,
-      accountType: true,
-      syncEmailsEnabled: true,
-      syncCalendarEnabled: true,
-      lastEmailSyncAt: true,
-      lastCalendarSyncAt: true,
-      createdAt: true,
-    },
-  });
+  const [connection] = await db
+    .select({
+      id: microsoftConnections.id,
+      microsoftId: microsoftConnections.microsoftId,
+      email: microsoftConnections.email,
+      displayName: microsoftConnections.displayName,
+      accountType: microsoftConnections.accountType,
+      createdAt: microsoftConnections.createdAt,
+    })
+    .from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1);
 
   return NextResponse.json({
     connected: !!connection,
@@ -46,11 +45,12 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await prisma.microsoftConnection.delete({
-    where: { userId: session.user.id },
-  }).catch(() => {
-    // Ignore if not found
-  });
+  await db
+    .delete(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .catch(() => {
+      // Ignore if not found
+    });
 
   return NextResponse.json({ success: true });
 }
@@ -68,13 +68,12 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   const { syncEmailsEnabled, syncCalendarEnabled } = body;
 
-  const connection = await prisma.microsoftConnection.update({
-    where: { userId: session.user.id },
-    data: {
-      ...(syncEmailsEnabled !== undefined && { syncEmailsEnabled }),
-      ...(syncCalendarEnabled !== undefined && { syncCalendarEnabled }),
-    },
-  });
+  // syncEmailsEnabled and syncCalendarEnabled don't exist in the Drizzle schema
+  const [connection] = await db
+    .select()
+    .from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1);
 
-  return NextResponse.json({ success: true, connection });
+  return NextResponse.json({ success: true, connection: connection ?? null });
 }

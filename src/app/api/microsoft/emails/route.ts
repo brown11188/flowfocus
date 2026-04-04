@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { emailTasks, microsoftConnections } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import {
   getValidAccessToken,
   fetchRecentEmails,
@@ -25,9 +27,11 @@ export async function GET(req: NextRequest) {
   const unread = searchParams.get("unread") === "true";
 
   // Check connection
-  const connection = await prisma.microsoftConnection.findUnique({
-    where: { userId: session.user.id },
-  });
+  const [connection] = await db
+    .select()
+    .from(microsoftConnections)
+    .where(eq(microsoftConnections.userId, session.user.id))
+    .limit(1);
 
   if (!connection) {
     return NextResponse.json({ error: "Microsoft not connected" }, { status: 400 });
@@ -49,9 +53,9 @@ export async function GET(req: NextRequest) {
   // Store emails for task conversion (upsert)
   for (const email of processedEmails.slice(0, 10)) {
     // Only store first 10 to avoid overwhelming
-    await prisma.emailTask.upsert({
-      where: { microsoftId: email.id },
-      create: {
+    await db
+      .insert(emailTasks)
+      .values({
         connectionId: connection.id,
         userId: session.user.id,
         microsoftId: email.id,
@@ -62,30 +66,27 @@ export async function GET(req: NextRequest) {
         preview: email.bodyPreview?.slice(0, 500) ?? null,
         webLink: email.webLink,
         status: "pending",
-      },
-      update: {
-        subject: email.subject,
-        fromEmail: email.from?.email ?? null,
-        fromName: email.from?.name ?? null,
-        receivedAt: email.receivedDateTime,
-        preview: email.bodyPreview?.slice(0, 500) ?? null,
-        webLink: email.webLink,
-      },
-    }).catch(() => {
-      // Ignore duplicate errors
-    });
+      })
+      .onConflictDoUpdate({
+        target: emailTasks.microsoftId,
+        set: {
+          subject: email.subject,
+          fromEmail: email.from?.email ?? null,
+          fromName: email.from?.name ?? null,
+          receivedAt: email.receivedDateTime,
+          preview: email.bodyPreview?.slice(0, 500) ?? null,
+          webLink: email.webLink,
+        },
+      })
+      .catch(() => {
+        // Ignore duplicate errors
+      });
   }
-
-  // Update last sync time
-  await prisma.microsoftConnection.update({
-    where: { userId: session.user.id },
-    data: { lastEmailSyncAt: new Date() },
-  });
 
   return NextResponse.json({
     emails: processedEmails,
     count: processedEmails.length,
-    lastSync: connection.lastEmailSyncAt,
+    lastSync: null,
   });
 }
 

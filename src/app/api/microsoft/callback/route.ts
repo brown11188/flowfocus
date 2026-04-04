@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { microsoftConnections } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -145,9 +147,9 @@ export async function GET(req: NextRequest) {
   const scopes = (tokenData.scope as string | undefined) ?? null;
 
   try {
-    await prisma.microsoftConnection.upsert({
-      where: { userId },
-      create: {
+    await db
+      .insert(microsoftConnections)
+      .values({
         userId,
         microsoftId,
         email,
@@ -157,17 +159,19 @@ export async function GET(req: NextRequest) {
         expiresAt,
         scopes,
         accountType: "work",
-      },
-      update: {
-        microsoftId,
-        email,
-        displayName,
-        accessToken,
-        refreshToken,
-        expiresAt,
-        scopes,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: microsoftConnections.userId,
+        set: {
+          microsoftId,
+          email,
+          displayName,
+          accessToken,
+          refreshToken,
+          expiresAt,
+          scopes,
+        },
+      });
     console.log("[MS_CALLBACK] MicrosoftConnection saved", { userId, email });
   } catch (e) {
     console.error("[MS_CALLBACK] DB upsert failed", e);
