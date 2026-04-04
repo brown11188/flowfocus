@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks, projects, focusSessions } from "@/db/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -42,25 +44,49 @@ export async function GET(req: NextRequest) {
   const { start, end } = getWeekBounds(week);
   const userId = session.user.id;
 
-  const [completedTasks, allDueTasks, focusSessions] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, completed: true, completedAt: { gte: start, lte: end } },
-      select: { id: true, completedAt: true, projectId: true, project: { select: { name: true, color: true } } },
-    }),
-    prisma.task.findMany({
-      where: { userId, dueDate: { gte: start, lte: end }, isDeleted: false },
-      select: { id: true, title: true, dueDate: true, completed: true, projectId: true, project: { select: { name: true } } },
-    }),
-    prisma.focusSession.findMany({
-      where: { userId, createdAt: { gte: start, lte: end } },
-      select: { actualMins: true, createdAt: true },
-    }),
+  const [completedTaskRows, allDueTaskRows, focusSessionRows] = await Promise.all([
+    db.select({
+      id: tasks.id,
+      completedAt: tasks.completedAt,
+      projectId: tasks.projectId,
+      projectName: projects.name,
+      projectColor: projects.color,
+    }).from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(
+        eq(tasks.userId, userId),
+        eq(tasks.completed, true),
+        gte(tasks.completedAt, start),
+        lte(tasks.completedAt, end),
+      )),
+    db.select({
+      id: tasks.id,
+      title: tasks.title,
+      dueDate: tasks.dueDate,
+      completed: tasks.completed,
+      projectId: tasks.projectId,
+      projectName: projects.name,
+    }).from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(
+        eq(tasks.userId, userId),
+        gte(tasks.dueDate, start),
+        lte(tasks.dueDate, end),
+        eq(tasks.isDeleted, false),
+      )),
+    db.select({ actualMins: focusSessions.actualMins, createdAt: focusSessions.createdAt })
+      .from(focusSessions)
+      .where(and(
+        eq(focusSessions.userId, userId),
+        gte(focusSessions.createdAt, start),
+        lte(focusSessions.createdAt, end),
+      )),
   ]);
 
-  const completed = completedTasks.length;
-  const overdueTasks = allDueTasks.filter(t => !t.completed);
+  const completed = completedTaskRows.length;
+  const overdueTasks = allDueTaskRows.filter(t => !t.completed);
   const overdue = overdueTasks.length;
-  const focusMinutes = focusSessions.reduce((sum, s) => sum + s.actualMins, 0);
+  const focusMinutes = focusSessionRows.reduce((sum, s) => sum + s.actualMins, 0);
   const completionRate = completed + overdue > 0 ? Math.round((completed / (completed + overdue)) * 100) : 0;
 
   // By day breakdown
@@ -69,16 +95,16 @@ export async function GET(req: NextRequest) {
     const dayDate = new Date(start);
     dayDate.setDate(start.getDate() + i);
     const dayStr = dayDate.toISOString().slice(0, 10);
-    const completedCount = completedTasks.filter(t => t.completedAt && t.completedAt.toISOString().slice(0, 10) === dayStr).length;
-    const focusMins = focusSessions.filter(s => s.createdAt.toISOString().slice(0, 10) === dayStr).reduce((sum, s) => sum + s.actualMins, 0);
+    const completedCount = completedTaskRows.filter(t => t.completedAt && t.completedAt.toISOString().slice(0, 10) === dayStr).length;
+    const focusMins = focusSessionRows.filter(s => s.createdAt.toISOString().slice(0, 10) === dayStr).reduce((sum, s) => sum + s.actualMins, 0);
     return { day, completedCount, focusMinutes: focusMins };
   });
 
   // By project
   const byProject: Record<string, { name: string; color: string; count: number }> = {};
-  for (const t of completedTasks) {
+  for (const t of completedTaskRows) {
     const pId = t.projectId || "_none";
-    if (!byProject[pId]) byProject[pId] = { name: t.project?.name || "No Project", color: t.project?.color || "#888", count: 0 };
+    if (!byProject[pId]) byProject[pId] = { name: t.projectName || "No Project", color: t.projectColor || "#888", count: 0 };
     byProject[pId].count++;
   }
 
@@ -90,7 +116,7 @@ export async function GET(req: NextRequest) {
     completionRate,
     byDay,
     byProject: Object.values(byProject),
-    overdueTasks: overdueTasks.map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate?.toISOString(), projectName: t.project?.name })),
+    overdueTasks: overdueTasks.map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate?.toISOString(), projectName: t.projectName })),
     weekStart: start.toISOString(),
     weekEnd: end.toISOString(),
   });

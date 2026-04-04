@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { TIMEZONE_LIST } from "@/lib/timezone";
 
 const VALID_TIMEZONES = new Set(TIMEZONE_LIST.map(t => t.value));
@@ -16,10 +18,10 @@ export async function GET() {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { timezone: true },
-  });
+  const [user] = await db.select({ timezone: users.timezone })
+    .from(users)
+    .where(eq(users.id, session.user.id))
+    .limit(1);
   return NextResponse.json({ timezone: user?.timezone ?? "UTC" });
 }
 
@@ -39,10 +41,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
   }
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { timezone: tz },
-  });
+  await db.update(users).set({ timezone: tz }).where(eq(users.id, session.user.id));
 
   return NextResponse.json({ timezone: tz });
 }

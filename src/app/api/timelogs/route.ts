@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { timeLogs, tasks, projects } from "@/db/schema";
+import { eq, and, gte, lt, asc, desc } from "drizzle-orm";
 
 function serializeLog(l: Record<string, unknown>) {
   return {
@@ -18,11 +20,10 @@ export async function GET(req: NextRequest) {
   const weekParam = req.nextUrl.searchParams.get("week"); // "YYYY-WXX" format or ISO date
 
   if (taskId) {
-    const logs = await prisma.timeLog.findMany({
-      where: { taskId, userId: session.user.id },
-      orderBy: { loggedAt: "desc" },
-    });
-    return NextResponse.json(logs.map(serializeLog));
+    const logs = await db.select().from(timeLogs)
+      .where(and(eq(timeLogs.taskId, taskId), eq(timeLogs.userId, session.user.id)))
+      .orderBy(desc(timeLogs.loggedAt));
+    return NextResponse.json(logs.map(l => serializeLog(l as unknown as Record<string, unknown>)));
   }
 
   // Weekly summary
@@ -46,11 +47,41 @@ export async function GET(req: NextRequest) {
   endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + 7);
 
-  const logs = await prisma.timeLog.findMany({
-    where: { userId: session.user.id, loggedAt: { gte: startDate, lt: endDate } },
-    include: { task: { select: { id: true, title: true, projectId: true, project: { select: { name: true, color: true } } } } },
-    orderBy: { loggedAt: "asc" },
-  });
+  const rows = await db.select({
+    id: timeLogs.id,
+    taskId: timeLogs.taskId,
+    userId: timeLogs.userId,
+    durationMinutes: timeLogs.durationMinutes,
+    note: timeLogs.note,
+    loggedAt: timeLogs.loggedAt,
+    taskTitle: tasks.title,
+    taskProjectId: tasks.projectId,
+    projectName: projects.name,
+    projectColor: projects.color,
+  }).from(timeLogs)
+    .leftJoin(tasks, eq(timeLogs.taskId, tasks.id))
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(
+      eq(timeLogs.userId, session.user.id),
+      gte(timeLogs.loggedAt, startDate),
+      lt(timeLogs.loggedAt, endDate),
+    ))
+    .orderBy(asc(timeLogs.loggedAt));
+
+  const logs = rows.map(row => ({
+    id: row.id,
+    taskId: row.taskId,
+    userId: row.userId,
+    durationMinutes: row.durationMinutes,
+    note: row.note,
+    loggedAt: row.loggedAt,
+    task: row.taskTitle ? {
+      id: row.taskId,
+      title: row.taskTitle,
+      projectId: row.taskProjectId,
+      project: row.projectName ? { name: row.projectName, color: row.projectColor } : null,
+    } : null,
+  }));
 
   return NextResponse.json(logs.map((l) => serializeLog(l as unknown as Record<string, unknown>)));
 }
@@ -63,11 +94,16 @@ export async function POST(req: NextRequest) {
   const { taskId, durationMinutes, note } = await req.json();
   if (!taskId || !durationMinutes) return NextResponse.json({ error: "taskId and durationMinutes required" }, { status: 400 });
 
-  const task = await prisma.task.findFirst({ where: { id: taskId, userId: session.user.id } });
+  const [task] = await db.select().from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, session.user.id)))
+    .limit(1);
   if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
-  const log = await prisma.timeLog.create({
-    data: { taskId, userId: session.user.id, durationMinutes: Number(durationMinutes), note },
-  });
+  const [log] = await db.insert(timeLogs).values({
+    taskId,
+    userId: session.user.id,
+    durationMinutes: Number(durationMinutes),
+    note,
+  }).returning();
   return NextResponse.json(serializeLog(log as unknown as Record<string, unknown>));
 }

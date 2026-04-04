@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-
-const TASK_INCLUDE = {
-  project: true,
-  labels: { include: { label: true } },
-  subtasks: { where: { isDeleted: false } },
-  blockedBy: { include: { blockingTask: { select: { id: true, title: true, completed: true } } } },
-  blocking: { include: { blockedTask: { select: { id: true, title: true, completed: true } } } },
-  timeLogs: { orderBy: { loggedAt: "desc" as const } },
-};
+import { db } from "@/db";
+import { tasks, taskLabels, labels } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 function serializeTask(t: Record<string, unknown>) {
   return {
@@ -35,7 +28,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await req.json();
 
-  const task = await prisma.task.findFirst({ where: { id, userId: session.user.id } });
+  const [task] = await db.select().from(tasks)
+    .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)))
+    .limit(1);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const updates: Record<string, unknown> = {};
@@ -58,28 +53,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
   if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
   if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
-  if (body.assigneeName !== undefined) updates.assigneeName = body.assigneeName;
-  if (body.waitingOn !== undefined) updates.waitingOn = body.waitingOn;
-  if (body.approvalStatus !== undefined) updates.approvalStatus = body.approvalStatus;
-  if (body.blockedAt !== undefined) updates.blockedAt = body.blockedAt ? new Date(body.blockedAt) : null;
 
   if (body.completed !== undefined) {
     updates.completed = body.completed;
     updates.completedAt = body.completed ? new Date() : null;
   }
 
-  const updated = await prisma.task.update({
-    where: { id },
-    data: updates,
-    include: TASK_INCLUDE,
-  });
+  const [updated] = await db.update(tasks).set(updates).where(eq(tasks.id, id)).returning();
 
   // Auto-generate next occurrence for recurring tasks on completion
   if (body.completed === true && task.recurrenceRule) {
     await createNextRecurrence(task);
   }
 
-  return NextResponse.json(serializeTask(updated as unknown as Record<string, unknown>));
+  const labelRows = await db.select({ taskId: taskLabels.taskId, label: labels })
+    .from(taskLabels)
+    .innerJoin(labels, eq(taskLabels.labelId, labels.id))
+    .where(eq(taskLabels.taskId, id));
+
+  return NextResponse.json(serializeTask({
+    ...updated,
+    labels: labelRows.map(r => ({ label: r.label })),
+    timeLogs: [],
+    subtasks: [],
+    blockedBy: [],
+    blocking: [],
+  } as unknown as Record<string, unknown>));
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -87,10 +86,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  await prisma.task.update({
-    where: { id, userId: session.user.id },
-    data: { isDeleted: true, deletedAt: new Date() },
-  });
+  await db.update(tasks)
+    .set({ isDeleted: true, deletedAt: new Date() })
+    .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)));
 
   return NextResponse.json({ success: true });
 }
@@ -107,22 +105,20 @@ async function createNextRecurrence(task: {
   if (!nextDate) return;
   if (task.recurrenceEndDate && nextDate > task.recurrenceEndDate) return;
 
-  await prisma.task.create({
-    data: {
-      title: task.title,
-      notes: task.notes,
-      dueDate: nextDate,
-      dueTime: task.dueTime,
-      priority: task.priority,
-      userId: task.userId,
-      projectId: task.projectId,
-      recurrenceRule: task.recurrenceRule,
-      recurrenceInterval: task.recurrenceInterval,
-      recurrenceDays: task.recurrenceDays,
-      recurrenceEndDate: task.recurrenceEndDate,
-      recurringParentId: task.id,
-      status: "TODO",
-    },
+  await db.insert(tasks).values({
+    title: task.title,
+    notes: task.notes,
+    dueDate: nextDate,
+    dueTime: task.dueTime,
+    priority: task.priority,
+    userId: task.userId,
+    projectId: task.projectId,
+    recurrenceRule: task.recurrenceRule,
+    recurrenceInterval: task.recurrenceInterval,
+    recurrenceDays: task.recurrenceDays,
+    recurrenceEndDate: task.recurrenceEndDate,
+    recurringParentId: task.id,
+    status: "TODO",
   });
 }
 

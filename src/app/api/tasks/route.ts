@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-
-const TASK_INCLUDE = {
-  project: true,
-  labels: { include: { label: true } },
-  subtasks: { where: { isDeleted: false } },
-  blockedBy: { include: { blockingTask: { select: { id: true, title: true, completed: true } } } },
-  blocking: { include: { blockedTask: { select: { id: true, title: true, completed: true } } } },
-  timeLogs: { orderBy: { loggedAt: "desc" as const } },
-};
+import { db } from "@/db";
+import { tasks, projects, taskLabels, labels } from "@/db/schema";
+import { eq, and, asc, desc, inArray } from "drizzle-orm";
 
 function serializeTask(t: Record<string, unknown>) {
   return {
@@ -33,13 +26,32 @@ export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const tasks = await prisma.task.findMany({
-    where: { userId: session.user.id, isDeleted: false },
-    include: TASK_INCLUDE,
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-  });
+  const taskRows = await db.select().from(tasks)
+    .where(and(eq(tasks.userId, session.user.id), eq(tasks.isDeleted, false)))
+    .orderBy(asc(tasks.sortOrder), desc(tasks.createdAt));
 
-  return NextResponse.json(tasks.map(serializeTask));
+  const taskIds = taskRows.map(t => t.id);
+  const labelRows = taskIds.length > 0
+    ? await db.select({ taskId: taskLabels.taskId, label: labels })
+        .from(taskLabels)
+        .innerJoin(labels, eq(taskLabels.labelId, labels.id))
+        .where(inArray(taskLabels.taskId, taskIds))
+    : [];
+
+  const labelsByTaskId: Record<string, { label: unknown }[]> = {};
+  for (const row of labelRows) {
+    if (!labelsByTaskId[row.taskId]) labelsByTaskId[row.taskId] = [];
+    labelsByTaskId[row.taskId].push({ label: row.label });
+  }
+
+  return NextResponse.json(taskRows.map(t => serializeTask({
+    ...t,
+    labels: labelsByTaskId[t.id] ?? [],
+    timeLogs: [],
+    subtasks: [],
+    blockedBy: [],
+    blocking: [],
+  } as unknown as Record<string, unknown>)));
 }
 
 export async function POST(req: NextRequest) {
@@ -57,35 +69,41 @@ export async function POST(req: NextRequest) {
 
   let finalProjectId = projectId;
   if (!finalProjectId) {
-    const inbox = await prisma.project.findFirst({ where: { userId: session.user.id, isInbox: true } });
+    const [inbox] = await db.select().from(projects)
+      .where(and(eq(projects.userId, session.user.id), eq(projects.isInbox, true)))
+      .limit(1);
     finalProjectId = inbox?.id;
   }
 
-  const task = await prisma.task.create({
-    data: {
-      title: title.trim(),
-      notes,
-      dueDate: dueDate ? new Date(dueDate) : null,
-      dueTime,
-      priority: Number(priority),
-      userId: session.user.id,
-      projectId: finalProjectId,
-      parentId,
-      depth: depth ?? 0,
-      recurrenceRule,
-      recurrenceInterval,
-      recurrenceDays,
-      recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null,
-      estimatedHours: estimatedHours ? Number(estimatedHours) : null,
-      status: status ?? "TODO",
-      sprintId,
-      assigneeName: assigneeName ?? null,
-      waitingOn: waitingOn ?? null,
-      approvalStatus: approvalStatus ?? null,
-      blockedAt: blockedAt ? new Date(blockedAt) : null,
-    },
-    include: TASK_INCLUDE,
-  });
+  const [task] = await db.insert(tasks).values({
+    title: title.trim(),
+    notes,
+    dueDate: dueDate ? new Date(dueDate) : null,
+    dueTime,
+    priority: Number(priority),
+    userId: session.user.id,
+    projectId: finalProjectId,
+    parentId,
+    depth: depth ?? 0,
+    recurrenceRule,
+    recurrenceInterval,
+    recurrenceDays,
+    recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null,
+    estimatedHours: estimatedHours ? Number(estimatedHours) : null,
+    status: status ?? "TODO",
+    sprintId,
+    assigneeName: assigneeName ?? null,
+    waitingOn: waitingOn ?? null,
+    approvalStatus: approvalStatus ?? null,
+    blockedAt: blockedAt ? new Date(blockedAt) : null,
+  }).returning();
 
-  return NextResponse.json(serializeTask(task as unknown as Record<string, unknown>));
+  return NextResponse.json(serializeTask({
+    ...task,
+    labels: [],
+    timeLogs: [],
+    subtasks: [],
+    blockedBy: [],
+    blocking: [],
+  } as unknown as Record<string, unknown>));
 }
