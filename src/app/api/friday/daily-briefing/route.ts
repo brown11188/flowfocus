@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { tasks, projects, sprints, microsoftConnections, calendarEvents, emailDigests, dailyBriefings, users } from "@/lib/db/schema";
+import { eq, and, lt, lte, gte, count, sql, inArray } from "drizzle-orm";
 import type { DailyBriefing, DailyBriefingTask } from "@/types/daily-briefing";
 
 export const dynamic = "force-dynamic";
@@ -114,87 +116,100 @@ async function buildBriefingContext(userId: string, tz: string) {
     overdueTasks,
     todayTasks,
     upcomingTasks,
-    projects,
+    projectList,
     completedThisWeek,
     completedToday,
-    activeSprint,
-    microsoftConn,
-    stats,
   ] = await Promise.all([
     // Overdue tasks
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { lt: todayStart } },
-      include: { project: true },
-      orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
-      take: 20,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, lt: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), l(t.dueDate, todayStart)),
+      with: { project: true },
+      orderBy: (t, { asc }) => [asc(t.priority), asc(t.dueDate)],
+      limit: 20,
     }),
     // Today tasks
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gte: todayStart, lte: todayEnd } },
-      include: { project: true },
-      orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
-      take: 30,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, gte: g, lte: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), g(t.dueDate, todayStart), l(t.dueDate, todayEnd)),
+      with: { project: true },
+      orderBy: (t, { asc }) => [asc(t.priority), asc(t.dueDate)],
+      limit: 30,
     }),
     // Upcoming (next 7 days)
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false, dueDate: { gt: todayEnd, lte: weekEnd } },
-      include: { project: true },
-      orderBy: [{ priority: "asc" }, { dueDate: "asc" }],
-      take: 20,
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a, gt: g, lte: l }) => a(e(t.userId, userId), e(t.isDeleted, false), e(t.completed, false), g(t.dueDate, todayEnd), l(t.dueDate, weekEnd)),
+      with: { project: true },
+      orderBy: (t, { asc }) => [asc(t.priority), asc(t.dueDate)],
+      limit: 20,
     }),
     // Projects
-    prisma.project.findMany({ where: { userId }, orderBy: { sortOrder: "asc" } }),
+    db.query.projects.findMany({
+      where: (t, { eq: e }) => e(t.userId, userId),
+      orderBy: (t, { asc }) => [asc(t.sortOrder)],
+    }),
     // Completed this week
-    prisma.task.count({
-      where: { userId, completed: true, completedAt: { gte: new Date(now.getTime() - 7 * 86400000) } },
-    }),
+    db.select({ count: count() }).from(tasks).where(
+      and(eq(tasks.userId, userId), eq(tasks.completed, true), gte(tasks.completedAt, new Date(now.getTime() - 7 * 86400000)))
+    ).then(r => Number(r[0]?.count ?? 0)),
     // Completed today
-    prisma.task.count({
-      where: { userId, completed: true, completedAt: { gte: todayStart, lte: todayEnd } },
-    }),
-    // Active sprint (first active sprint across any project)
-    prisma.sprint.findFirst({
-      where: { isActive: true, project: { userId } },
-      include: { project: true, _count: { select: { tasks: true } } },
-    }),
-    // Microsoft connection
-    prisma.microsoftConnection.findUnique({ where: { userId } }),
-    // Stats for streak (weekdays only — weekends don't break streak)
-    (async () => {
-      let streak = 0;
-      let checkDate = new Date(todayStart);
-      checkDate.setDate(checkDate.getDate() - 1);
-      for (let i = 0; i < 60; i++) {
-        const dayOfWeek = checkDate.getDay(); // 0=Sun, 6=Sat
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-          checkDate.setDate(checkDate.getDate() - 1);
-          continue;
-        }
-        const nextDay = new Date(checkDate);
-        nextDay.setDate(nextDay.getDate() + 1);
-        const count = await prisma.task.count({
-          where: { userId, completedAt: { gte: checkDate, lt: nextDay } },
-        });
-        if (count > 0) { streak++; checkDate.setDate(checkDate.getDate() - 1); }
-        else break;
-      }
-      return streak;
-    })(),
+    db.select({ count: count() }).from(tasks).where(
+      and(eq(tasks.userId, userId), eq(tasks.completed, true), gte(tasks.completedAt, todayStart), lte(tasks.completedAt, todayEnd))
+    ).then(r => Number(r[0]?.count ?? 0)),
   ]);
 
+  // Active sprint (first active sprint across any project owned by user)
+  const userProjectIds = await db.select({ id: projects.id }).from(projects).where(eq(projects.userId, userId));
+  const projectIdList = userProjectIds.map(p => p.id);
+  let activeSprint: (Awaited<ReturnType<typeof db.query.sprints.findFirst>> & { _count: { tasks: number } }) | null = null;
+  if (projectIdList.length > 0) {
+    const sprintRow = await db.query.sprints.findFirst({
+      where: (s, { eq: e, and: a }) => a(e(s.isActive, true), inArray(s.projectId, projectIdList)),
+      with: { project: true },
+    }) ?? null;
+    if (sprintRow) {
+      const [{ count: sprintTotal }] = await db.select({ count: count() }).from(tasks).where(
+        and(eq(tasks.sprintId, sprintRow.id), eq(tasks.isDeleted, false))
+      );
+      activeSprint = { ...sprintRow, _count: { tasks: Number(sprintTotal) } };
+    }
+  }
+
+  // Microsoft connection
+  const microsoftConn = await db.query.microsoftConnections.findFirst({
+    where: (t, { eq: e }) => e(t.userId, userId),
+  }) ?? null;
+
+  // Streak (weekdays only)
+  const stats = await (async () => {
+    let streak = 0;
+    let checkDate = new Date(todayStart);
+    checkDate.setDate(checkDate.getDate() - 1);
+    for (let i = 0; i < 60; i++) {
+      const dayOfWeek = checkDate.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        checkDate.setDate(checkDate.getDate() - 1);
+        continue;
+      }
+      const nextDay = new Date(checkDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const [{ count: cnt }] = await db.select({ count: count() }).from(tasks).where(
+        and(eq(tasks.userId, userId), gte(tasks.completedAt, checkDate), lt(tasks.completedAt, nextDay))
+      );
+      if (Number(cnt) > 0) { streak++; checkDate.setDate(checkDate.getDate() - 1); }
+      else break;
+    }
+    return streak;
+  })();
+
   // Calendar events today (if Microsoft connected)
-  let calendarEvents: Array<{
+  let calendarEventList: Array<{
     id: string; subject: string | null; startDateTime: Date; endDateTime: Date;
     location: string | null; webLink: string | null;
   }> = [];
   if (microsoftConn?.syncCalendarEnabled) {
-    calendarEvents = await prisma.calendarEvent.findMany({
-      where: {
-        userId,
-        startDateTime: { gte: todayStart, lte: todayEnd },
-      },
-      orderBy: { startDateTime: "asc" },
-      take: 10,
+    calendarEventList = await db.query.calendarEvents.findMany({
+      where: (t, { eq: e, and: a, gte: g, lte: l }) => a(e(t.userId, userId), g(t.startDateTime, todayStart), l(t.startDateTime, todayEnd)),
+      orderBy: (t, { asc }) => [asc(t.startDateTime)],
+      limit: 10,
     });
   }
 
@@ -207,25 +222,26 @@ async function buildBriefingContext(userId: string, tz: string) {
     aiSummary: string | null;
   } | null = null;
   if (microsoftConn) {
-    latestDigest = await prisma.emailDigest.findFirst({
-      where: { userId, status: "done" },
-      orderBy: { createdAt: "desc" },
-      select: {
+    latestDigest = await db.query.emailDigests.findFirst({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.status, "done")),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+      columns: {
         missedReplyCount: true,
         needsReplyCount: true,
         missedReplies: true,
         needsReply: true,
         aiSummary: true,
       },
-    });
+    }) ?? null;
   }
 
   // Sprint done count
   let sprintDoneCount = 0;
   if (activeSprint) {
-    sprintDoneCount = await prisma.task.count({
-      where: { sprintId: activeSprint.id, completed: true, isDeleted: false },
-    });
+    const [{ count: doneCount }] = await db.select({ count: count() }).from(tasks).where(
+      and(eq(tasks.sprintId, activeSprint.id), eq(tasks.completed, true), eq(tasks.isDeleted, false))
+    );
+    sprintDoneCount = Number(doneCount);
   }
 
   return {
@@ -233,14 +249,14 @@ async function buildBriefingContext(userId: string, tz: string) {
     overdueTasks,
     todayTasks,
     upcomingTasks,
-    projects,
+    projects: projectList,
     completedThisWeek,
     completedToday,
     streak: stats,
     activeSprint,
     sprintDoneCount,
     microsoftConn,
-    calendarEvents,
+    calendarEvents: calendarEventList,
     latestDigest,
   };
 }
@@ -566,9 +582,9 @@ export async function GET(req: NextRequest) {
   const forceRefresh = url.searchParams.get("refresh") === "1";
 
   // Fetch user's timezone
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
+  const user = await db.query.users.findFirst({
+    where: (t, { eq: e }) => e(t.id, userId),
+    columns: { timezone: true },
   });
   const tz = user?.timezone ?? "UTC";
 
@@ -576,8 +592,8 @@ export async function GET(req: NextRequest) {
 
   // Check cache first
   if (!forceRefresh) {
-    const cached = await prisma.dailyBriefing.findUnique({
-      where: { userId_briefingDate: { userId, briefingDate: todayKey } },
+    const cached = await db.query.dailyBriefings.findFirst({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.briefingDate, todayKey)),
     });
     if (cached) {
       // Check if cache is still fresh (< 4 hours)
@@ -625,21 +641,20 @@ export async function GET(req: NextRequest) {
   const briefing = buildFullBriefing(aiParsed, ctx, false);
 
   // Save to cache (upsert)
-  await prisma.dailyBriefing.upsert({
-    where: { userId_briefingDate: { userId, briefingDate: todayKey } },
-    create: {
-      userId,
-      briefingDate: todayKey,
+  await db.insert(dailyBriefings).values({
+    userId,
+    briefingDate: todayKey,
+    data: JSON.stringify(briefing),
+    generatedAt: new Date(),
+    refreshCount: 0,
+    isFromCache: false,
+  }).onConflictDoUpdate({
+    target: [dailyBriefings.userId, dailyBriefings.briefingDate],
+    set: {
       data: JSON.stringify(briefing),
       generatedAt: new Date(),
-      refreshCount: 0,
       isFromCache: false,
-    },
-    update: {
-      data: JSON.stringify(briefing),
-      generatedAt: new Date(),
-      isFromCache: false,
-      refreshCount: { increment: forceRefresh ? 1 : 0 },
+      ...(forceRefresh ? { refreshCount: sql`${dailyBriefings.refreshCount} + 1` } : {}),
     },
   });
 

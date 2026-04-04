@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -18,17 +18,18 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.DEEPINFRA_API_KEY;
 
   // Build context from DB
-  const [allTasks, focusSessions] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false },
-      select: { id: true, title: true, priority: true, dueDate: true, completed: true, project: { select: { name: true } } },
-      take: 100,
+  const [allTasks, focusSessionList] = await Promise.all([
+    db.query.tasks.findMany({
+      where: (t, { eq: e, and: a }) => a(e(t.userId, userId), e(t.isDeleted, false)),
+      columns: { id: true, title: true, priority: true, dueDate: true, completed: true },
+      with: { project: { columns: { name: true } } },
+      limit: 100,
     }),
-    prisma.focusSession.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { taskLabel: true, actualMins: true, createdAt: true },
+    db.query.focusSessions.findMany({
+      where: (t, { eq: e }) => e(t.userId, userId),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+      limit: 5,
+      columns: { taskLabel: true, actualMins: true, createdAt: true },
     }),
   ]);
 
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     `Overdue: ${overdue.length}`,
     `Due today: ${today.length}`,
     `Today's tasks: ${today.map(t => `"${t.title}" (P${t.priority}${t.project?.name ? ` in ${t.project.name}` : ""})`).join(", ") || "none"}`,
-    `Recent focus: ${focusSessions.map(s => `${s.actualMins}min on "${s.taskLabel}"`).join(", ") || "none"}`,
+    `Recent focus: ${focusSessionList.map(s => `${s.actualMins}min on "${s.taskLabel}"`).join(", ") || "none"}`,
     overdue.length > 0 ? `Overdue tasks: ${overdue.slice(0, 5).map(t => `"${t.title}"`).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
