@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,16 +18,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) {
       return NextResponse.json({ error: "No account found with this email" }, { status: 404 });
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { email },
-      data: { password: hashed },
-    });
+    await db.update(users).set({ password: hashed }).where(eq(users.email, email));
 
     return NextResponse.json({ success: true });
   } catch (error) {

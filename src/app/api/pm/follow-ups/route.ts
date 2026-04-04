@@ -1,26 +1,57 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks, projects, approvalItems, emailDigests } from "@/db/schema";
+import { eq, and, or, isNotNull, desc } from "drizzle-orm";
 
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [pendingApprovals, blockedTasks, latestDigest] = await Promise.all([
-    prisma.approvalItem.findMany({ where: { userId: session.user.id, status: "pending" }, orderBy: { createdAt: "desc" }, take: 10 }),
-    prisma.task.findMany({
-      where: {
-        userId: session.user.id,
-        completed: false,
-        isDeleted: false,
-        OR: [{ waitingOn: { not: null } }, { blockedAt: { not: null } }],
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
-      include: { project: true },
-    }),
-    prisma.emailDigest.findFirst({ where: { userId: session.user.id, status: "done" }, orderBy: { createdAt: "desc" } }),
+  const [pendingApprovals, blockedTasksRaw, latestDigest] = await Promise.all([
+    db.select().from(approvalItems)
+      .where(and(eq(approvalItems.userId, session.user.id), eq(approvalItems.status, "pending")))
+      .orderBy(desc(approvalItems.createdAt))
+      .limit(10),
+    db.select({
+      id: tasks.id,
+      title: tasks.title,
+      completed: tasks.completed,
+      isDeleted: tasks.isDeleted,
+      userId: tasks.userId,
+      projectId: tasks.projectId,
+      dueDate: tasks.dueDate,
+      waitingOn: tasks.waitingOn,
+      blockedAt: tasks.blockedAt,
+      priority: tasks.priority,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      projectName: projects.name,
+      projectColor: projects.color,
+    })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(
+        and(
+          eq(tasks.userId, session.user.id),
+          eq(tasks.completed, false),
+          eq(tasks.isDeleted, false),
+          or(isNotNull(tasks.waitingOn), isNotNull(tasks.blockedAt))
+        )
+      )
+      .orderBy(desc(tasks.updatedAt))
+      .limit(10),
+    db.select().from(emailDigests)
+      .where(and(eq(emailDigests.userId, session.user.id), eq(emailDigests.status, "done")))
+      .orderBy(desc(emailDigests.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
   ]);
+
+  const blockedTasks = blockedTasksRaw.map((t) => ({
+    ...t,
+    project: t.projectName ? { name: t.projectName, color: t.projectColor } : null,
+  }));
 
   return NextResponse.json({
     pendingApprovals: pendingApprovals.map((item) => ({ ...item, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), dueDate: item.dueDate?.toISOString() ?? null })),

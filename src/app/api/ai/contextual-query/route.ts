@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks, projects, focusSessions } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -18,19 +20,31 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.DEEPINFRA_API_KEY;
 
   // Build context from DB
-  const [allTasks, focusSessions] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false },
-      select: { id: true, title: true, priority: true, dueDate: true, completed: true, project: { select: { name: true } } },
-      take: 100,
-    }),
-    prisma.focusSession.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { taskLabel: true, actualMins: true, createdAt: true },
-    }),
+  const [allTasksRaw, focusSessionsRaw] = await Promise.all([
+    db.select({
+      id: tasks.id,
+      title: tasks.title,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      completed: tasks.completed,
+      projectName: projects.name,
+    })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false)))
+      .limit(100),
+    db.select({
+      taskLabel: focusSessions.taskLabel,
+      actualMins: focusSessions.actualMins,
+      createdAt: focusSessions.createdAt,
+    })
+      .from(focusSessions)
+      .where(eq(focusSessions.userId, userId))
+      .orderBy(focusSessions.createdAt)
+      .limit(5),
   ]);
+
+  const allTasks = allTasksRaw.map((t) => ({ ...t, project: t.projectName ? { name: t.projectName } : null }));
 
   const overdue = allTasks.filter(t => !t.completed && t.dueDate && new Date(t.dueDate) < new Date());
   const today = allTasks.filter(t => !t.completed && t.dueDate && new Date(t.dueDate).toDateString() === new Date().toDateString());
@@ -40,7 +54,7 @@ export async function POST(req: NextRequest) {
     `Overdue: ${overdue.length}`,
     `Due today: ${today.length}`,
     `Today's tasks: ${today.map(t => `"${t.title}" (P${t.priority}${t.project?.name ? ` in ${t.project.name}` : ""})`).join(", ") || "none"}`,
-    `Recent focus: ${focusSessions.map(s => `${s.actualMins}min on "${s.taskLabel}"`).join(", ") || "none"}`,
+    `Recent focus: ${focusSessionsRaw.map(s => `${s.actualMins}min on "${s.taskLabel}"`).join(", ") || "none"}`,
     overdue.length > 0 ? `Overdue tasks: ${overdue.slice(0, 5).map(t => `"${t.title}"`).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 

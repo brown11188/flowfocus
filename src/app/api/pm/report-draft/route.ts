@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { projects, tasks, risks, approvalItems } from "@/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -9,22 +11,33 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const projectId = body.projectId as string | undefined;
 
-  const [project, tasks, risks, approvals] = await Promise.all([
-    projectId ? prisma.project.findFirst({ where: { id: projectId, userId: session.user.id } }) : null,
-    prisma.task.findMany({ where: { userId: session.user.id, ...(projectId ? { projectId } : {}), isDeleted: false }, orderBy: { updatedAt: "desc" }, take: 50 }),
-    prisma.risk.findMany({ where: { userId: session.user.id, ...(projectId ? { projectId } : {}), status: { in: ["open", "watching"] } }, orderBy: { score: "desc" }, take: 10 }),
-    prisma.approvalItem.findMany({ where: { userId: session.user.id, ...(projectId ? { projectId } : {}), status: "pending" }, orderBy: { createdAt: "desc" }, take: 10 }),
+  const [project, tasksList, risksList, approvalsList] = await Promise.all([
+    projectId
+      ? db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id))).limit(1).then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    db.select().from(tasks)
+      .where(and(eq(tasks.userId, session.user.id), eq(tasks.isDeleted, false), ...(projectId ? [eq(tasks.projectId, projectId)] : [])))
+      .orderBy(desc(tasks.updatedAt))
+      .limit(50),
+    db.select().from(risks)
+      .where(and(eq(risks.userId, session.user.id), ...(projectId ? [eq(risks.projectId, projectId)] : [])))
+      .orderBy(desc(risks.createdAt))
+      .limit(10),
+    db.select().from(approvalItems)
+      .where(and(eq(approvalItems.userId, session.user.id), eq(approvalItems.status, "pending"), ...(projectId ? [eq(approvalItems.projectId, projectId)] : [])))
+      .orderBy(desc(approvalItems.createdAt))
+      .limit(10),
   ]);
 
-  const completed = tasks.filter((t) => t.completed).length;
-  const active = tasks.filter((t) => !t.completed).length;
-  const overdue = tasks.filter((t) => !t.completed && t.dueDate && t.dueDate < new Date()).length;
+  const completed = tasksList.filter((t) => t.completed).length;
+  const active = tasksList.filter((t) => !t.completed).length;
+  const overdue = tasksList.filter((t) => !t.completed && t.dueDate && t.dueDate < new Date()).length;
 
   const content = [
     `# ${project?.name ?? "Portfolio"} Status Report`,
     "",
     "## Overall status",
-    overdue > 0 || risks.length > 0 ? "Needs attention" : "On track",
+    overdue > 0 || risksList.length > 0 ? "Needs attention" : "On track",
     "",
     "## Completed",
     `- ${completed} tasks completed`,
@@ -34,10 +47,10 @@ export async function POST(req: NextRequest) {
     overdue > 0 ? `- ${overdue} overdue items need recovery` : "- No overdue items",
     "",
     "## Risks",
-    ...(risks.length ? risks.slice(0, 5).map((risk) => `- ${risk.title} (score ${risk.score})`) : ["- No major risks logged"]),
+    ...(risksList.length ? risksList.slice(0, 5).map((risk) => `- ${risk.title}`) : ["- No major risks logged"]),
     "",
     "## Pending approvals",
-    ...(approvals.length ? approvals.slice(0, 5).map((approval) => `- ${approval.title}`) : ["- No pending approvals"]),
+    ...(approvalsList.length ? approvalsList.slice(0, 5).map((approval) => `- ${approval.title}`) : ["- No pending approvals"]),
     "",
     "## Next steps",
     "- Confirm priorities for the next cycle",

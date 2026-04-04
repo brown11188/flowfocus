@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks } from "@/db/schema";
+import { eq, and, isNotNull, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -28,17 +30,21 @@ export async function POST(req: Request) {
   // Gather historical context
   const [recentTasks, openTasks] = await Promise.all([
     // Last 50 completed tasks with duration data
-    prisma.task.findMany({
-      where: { userId, completed: true, completedAt: { not: null } },
-      select: { title: true, createdAt: true, completedAt: true, estimatedHours: true, priority: true },
-      orderBy: { completedAt: "desc" },
-      take: 50,
-    }),
+    db.select({
+      title: tasks.title,
+      createdAt: tasks.createdAt,
+      completedAt: tasks.completedAt,
+      estimatedHours: tasks.estimatedHours,
+      priority: tasks.priority,
+    })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.completed, true), isNotNull(tasks.completedAt)))
+      .orderBy(desc(tasks.completedAt))
+      .limit(50),
     // Current open tasks for workload assessment
-    prisma.task.findMany({
-      where: { userId, completed: false, isDeleted: false },
-      select: { title: true, dueDate: true, priority: true },
-    }),
+    db.select({ title: tasks.title, dueDate: tasks.dueDate, priority: tasks.priority })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.completed, false), eq(tasks.isDeleted, false))),
   ]);
 
   // Calculate average completion time

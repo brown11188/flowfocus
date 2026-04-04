@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks, projects } from "@/db/schema";
+import { eq, and, or, lte } from "drizzle-orm";
 
 // ─── DeepInfra Adapter ───────────────────────────────────────────────────────
 // DeepInfra exposes an OpenAI-compatible chat completions endpoint.
@@ -107,18 +109,34 @@ export async function POST(_req: NextRequest) {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const tasks = await prisma.task.findMany({
-    where: {
-      userId: session.user.id,
-      isDeleted: false,
-      completed: false,
-      OR: [{ dueDate: { lte: tomorrow } }, { priority: { lte: 2 } }],
-    },
-    include: { project: true },
-    take: 20,
-  });
+  const tasksRaw = await db.select({
+    id: tasks.id,
+    title: tasks.title,
+    priority: tasks.priority,
+    dueDate: tasks.dueDate,
+    projectName: projects.name,
+  })
+    .from(tasks)
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
+    .where(
+      and(
+        eq(tasks.userId, session.user.id),
+        eq(tasks.isDeleted, false),
+        eq(tasks.completed, false),
+        or(lte(tasks.dueDate, tomorrow), lte(tasks.priority, 2))
+      )
+    )
+    .limit(20);
 
-  if (tasks.length === 0) {
+  const taskList = tasksRaw.map((t) => ({
+    id: t.id,
+    title: t.title,
+    priority: t.priority,
+    dueDate: t.dueDate,
+    project: t.projectName || "Inbox",
+  }));
+
+  if (tasksRaw.length === 0) {
     return NextResponse.json({
       greeting: `Good ${getTimeOfDay()}! 🌟`,
       summary:
@@ -127,14 +145,6 @@ export async function POST(_req: NextRequest) {
     });
   }
 
-  const taskList = tasks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    priority: t.priority,
-    dueDate: t.dueDate,
-    project: t.project?.name || "Inbox",
-  }));
-
   const apiKey = process.env.DEEPINFRA_API_KEY;
   if (!apiKey) {
     // No API key configured — use deterministic fallback
@@ -142,7 +152,7 @@ export async function POST(_req: NextRequest) {
       greeting: `Good ${getTimeOfDay()}, ${
         session.user.name?.split(" ")[0] || "there"
       }! 👋`,
-      summary: `You have ${tasks.length} active tasks. Here are your top priorities for today.`,
+      summary: `You have ${tasksRaw.length} active tasks. Here are your top priorities for today.`,
       priorities: fallbackPrioritize(taskList),
     });
   }
@@ -185,7 +195,7 @@ Respond with JSON only:
       greeting: `Good ${getTimeOfDay()}, ${
         session.user.name?.split(" ")[0] || "there"
       }! 👋`,
-      summary: `You have ${tasks.length} active tasks. Focus on your highest priority items first.`,
+      summary: `You have ${tasksRaw.length} active tasks. Focus on your highest priority items first.`,
       priorities: fallbackPrioritize(taskList),
     });
   }

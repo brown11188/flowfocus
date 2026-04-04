@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { users, passwordResetTokens } from "@/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { sendPasswordResetOtp } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Look up user
-    const user = await prisma.user.findUnique({ where: { email } });
+    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) return genericOk;
 
     // Users who signed up via OAuth only (no password) cannot reset via credentials
@@ -57,14 +59,12 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Invalidate any previous unexpired tokens for this user
-    await prisma.passwordResetToken.deleteMany({
-      where: { userId: user.id, usedAt: null },
-    });
+    await db.delete(passwordResetTokens).where(
+      and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.usedAt))
+    );
 
     // Create new token
-    await prisma.passwordResetToken.create({
-      data: { userId: user.id, email, otp, expiresAt },
-    });
+    await db.insert(passwordResetTokens).values({ userId: user.id, email, otp, expiresAt });
 
     // Send email
     await sendPasswordResetOtp({ to: email, name: user.name, otp });

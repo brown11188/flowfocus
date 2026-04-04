@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/db";
+import { tasks, projects, emailDigests } from "@/db/schema";
+import { eq, and, asc, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -18,20 +20,28 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.DEEPINFRA_API_KEY;
 
   // Gather related context
-  const [recentTasks, recentEmails] = await Promise.all([
-    prisma.task.findMany({
-      where: { userId, isDeleted: false, completed: false },
-      select: { id: true, title: true, priority: true, dueDate: true, project: { select: { name: true } } },
-      orderBy: { priority: "asc" },
-      take: 20,
-    }),
-    prisma.emailDigest.findMany({
-      where: { userId },
-      select: { aiSummary: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-    }).catch(() => []),
+  const [recentTasksRaw, recentEmails] = await Promise.all([
+    db.select({
+      id: tasks.id,
+      title: tasks.title,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      projectName: projects.name,
+    })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(eq(tasks.userId, userId), eq(tasks.isDeleted, false), eq(tasks.completed, false)))
+      .orderBy(asc(tasks.priority))
+      .limit(20),
+    db.select({ aiSummary: emailDigests.aiSummary, createdAt: emailDigests.createdAt })
+      .from(emailDigests)
+      .where(eq(emailDigests.userId, userId))
+      .orderBy(desc(emailDigests.createdAt))
+      .limit(3)
+      .catch(() => [] as { aiSummary: string | null; createdAt: Date }[]),
   ]);
+
+  const recentTasks = recentTasksRaw.map((t) => ({ ...t, project: t.projectName ? { name: t.projectName } : null }));
 
   const contextParts = [
     `Meeting: "${title}"`,
