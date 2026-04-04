@@ -56,8 +56,7 @@ export const accounts = pgTable(
 )
 
 export const sessions = pgTable('sessions', {
-  id: id(),
-  sessionToken: text('session_token').notNull().unique(),
+  sessionToken: text('session_token').primaryKey(),
   userId: text('user_id').notNull(),
   expires: timestamp('expires', { mode: 'date' }).notNull(),
 })
