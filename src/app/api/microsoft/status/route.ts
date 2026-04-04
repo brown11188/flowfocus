@@ -57,7 +57,7 @@ export async function DELETE(req: NextRequest) {
 
 /**
  * PATCH /api/microsoft/status
- * Update sync settings
+ * Update sync settings (syncEmailsEnabled/syncCalendarEnabled were removed from schema)
  */
 export async function PATCH(req: NextRequest) {
   const session = await auth();
@@ -65,15 +65,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json();
-  const { syncEmailsEnabled, syncCalendarEnabled } = body;
-
-  // syncEmailsEnabled and syncCalendarEnabled don't exist in the Drizzle schema
-  const [connection] = await db
-    .select()
-    .from(microsoftConnections)
-    .where(eq(microsoftConnections.userId, session.user.id))
-    .limit(1);
-
-  return NextResponse.json({ success: true, connection: connection ?? null });
+  // syncEmailsEnabled and syncCalendarEnabled no longer exist in the schema
+  return NextResponse.json(
+    { error: "Sync settings are not configurable" },
+    { status: 410 }
+  );
 }
